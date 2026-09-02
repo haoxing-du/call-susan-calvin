@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "call-susan-calvin-donations",
+  "main": "worker/donation-worker.mjs",
+  "compatibility_date": "2026-08-31",
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "donate.susancalvin.org", "custom_domain": true }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DONATION_METADATA",
+      "database_name": "susan-calvin-donation-metadata",
+      "database_id": "bd4aeead-3251-408a-8181-271474287846",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "DONATIONS",
+      "bucket_name": "susan-calvin-donations"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "DONATION_RATE_LIMITER",
+      "namespace_id": "1004",
+      "simple": { "limit": 5, "period": 60 }
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 0.1 }
+  }
+}

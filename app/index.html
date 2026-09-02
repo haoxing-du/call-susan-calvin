@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <title>Call Susan Calvin</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header>
+      <a class="wordmark" href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a>
+      <span class="local-status"><i></i> Local review</span>
+    </header>
+    <main>
+      <section class="hero">
+        <p class="eyebrow">Research data donation</p>
+        <h1>Show Susan what happened.</h1>
+        <p>Choose and review the agent conversations you want to contribute. Nothing leaves this machine until you consent and press Donate.</p>
+        <aside><strong>Your donation supports the Susan Calvin Project.</strong> The project studies how AI systems behave in the real world. <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">Read the data policy ↗</a></aside>
+      </section>
+
+      <section id="loading" class="card centered" aria-live="polite">Finding your local agent sessions…</section>
+      <section id="empty" class="card centered hidden"><h2>No sessions found</h2><p>Try restarting the command with a wider date range, such as <code>--days=90</code>.</p></section>
+      <div id="workspace" class="workspace hidden">
+        <section class="card controls">
+          <div class="step"><span>1</span><div><h2>Choose sessions</h2><p>These files are read locally from supported agent history directories.</p></div></div>
+          <div class="selection-heading"><label><input id="select-all" type="checkbox" checked> Select all</label><span id="selection-count"></span></div>
+          <div id="sessions" class="sessions"></div>
+          <label class="field"><span>Donation mode</span><select id="mode"><option value="standard">Standard redactions</option><option value="custom">Customize redactions</option><option value="unredacted">Unredacted</option></select></label>
+          <p id="mode-description" class="hint"></p>
+          <button id="preview-button" class="primary">Build review</button>
+        </section>
+
+        <section class="card review">
+          <div class="step"><span>2</span><div><h2>Review every included line</h2><p>Edit or exclude anything you do not want to contribute.</p></div></div>
+          <div id="review-placeholder" class="placeholder">Choose sessions, then build the local review.</div>
+          <div id="review-content" class="hidden">
+            <div id="warning"></div>
+            <div id="redaction-summary"></div>
+            <div id="redactions"></div>
+            <section id="custom-redaction" class="custom hidden">
+              <h3>Add another redaction</h3>
+              <div class="custom-fields">
+                <select id="custom-mode" aria-label="Custom redaction type"><option value="text">Plain text</option><option value="regex">Regular expression</option></select>
+                <input id="custom-pattern" maxlength="200" placeholder="Text or pattern to remove">
+                <input id="custom-replacement" maxlength="100" value="[REDACTED CUSTOM]" aria-label="Replacement text">
+                <button id="apply-custom" class="secondary">Apply</button>
+              </div>
+              <p id="custom-status" class="hint"></p>
+            </section>
+            <label class="timestamp-option"><input id="timestamps" type="checkbox"> Include message timestamps</label>
+            <div id="conversation-preview" class="conversations"></div>
+            <div class="step consent-heading"><span>3</span><div><h2>Consent separately</h2><p>The exact reviewed bundle will be encrypted on this machine before transmission.</p></div></div>
+            <label id="unredacted-consent" class="consent danger hidden"><input id="unredacted-ack" type="checkbox"> I understand that automatic redaction is disabled and private credentials, code, URLs, paths, and personal details may be transmitted.</label>
+            <label class="consent"><input id="consent" type="checkbox"> I consent to transmit this reviewed data to the Susan Calvin Project for research under the <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">data policy</a>.</label>
+            <button id="donate" class="donate" disabled>Donate reviewed data <span>→</span></button>
+          </div>
+          <p id="error" class="error" aria-live="assertive"></p>
+        </section>
+      </div>
+
+      <section id="success" class="card success hidden">
+        <div class="success-mark">✓</div>
+        <p class="eyebrow">Donation received</p>
+        <h1>Thank you for calling Susan.</h1>
+        <p>Your reviewed data was encrypted on this device before transmission. A protected local receipt lets you delete it later.</p>
+        <div class="reference"><span>Donation reference</span><code id="donation-id"></code></div>
+        <button id="delete-donation" class="secondary">Delete my donation</button>
+        <p id="delete-status" class="hint"></p>
+      </section>
+    </main>
+    <footer>Call Susan Calvin runs locally until you explicitly donate.</footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
+

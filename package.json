@@ -1,0 +1,57 @@
+{
+  "name": "call-susan-calvin",
+  "version": "0.1.0",
+  "description": "Review and securely donate your local AI agent sessions to the Susan Calvin Project.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "author": "Haoxing Du",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haoxing-du/call-susan-calvin.git"
+  },
+  "homepage": "https://susancalvin.org",
+  "bugs": {
+    "url": "https://github.com/haoxing-du/call-susan-calvin/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ai-agents",
+    "data-donation",
+    "local-first",
+    "research"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "call-susan-calvin": "server/cli.mjs"
+  },
+  "files": [
+    "app/",
+    "docs/",
+    "server/",
+    "fixtures/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node server/cli.mjs",
+    "demo": "node server/cli.mjs --demo",
+    "test": "node --test tests/*.test.mjs",
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "check": "npm test && npm run check:syntax",
+    "research:decrypt": "node scripts/decrypt-donation.mjs",
+    "worker:dev": "npx --yes wrangler@4.86.0 dev",
+    "worker:deploy": "npx --yes wrangler@4.86.0 deploy",
+    "db:migrate:remote": "npx --yes wrangler@4.86.0 d1 migrations apply susan-calvin-donation-metadata --remote",
+    "prepack": "npm run check",
+    "prepublishOnly": "npm run check",
+    "postpublish": "npm run worker:deploy"
+  }
+}

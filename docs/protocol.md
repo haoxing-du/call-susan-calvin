@@ -40,11 +40,11 @@ The schema accepts at most 250 sessions, 50,000 messages, 7,000,000 characters p
 
 ## Encrypted envelope
 
-The wire format is `susan-calvin-encrypted-donation-v1`. Plaintext is gzipped and encrypted with AES-256-GCM. Its random content key is wrapped with the public key identified by `research-donation-rsa-2026-08` using RSA-OAEP with SHA-256.
+The encryption structure is `susan-calvin-encrypted-donation-v1`. Protocol 1 transmits it as JSON; current collectors use streamed protocol 2, described below. Plaintext is gzipped and encrypted with AES-256-GCM. Its random content key is wrapped with the public key identified by `research-donation-rsa-2026-08` using RSA-OAEP with SHA-256.
 
 Envelope metadata contains the donation run ID, collector version, source types, redaction mode, timestamps, consent version, counts, compression mode, and an unredacted-data flag. The format, encryption algorithm, key ID, and complete metadata object are supplied as AES-GCM additional authenticated data.
 
-The client sends the envelope to `POST /v1/donations` with protocol and locally generated deletion-token headers. The donation run ID and deletion token make retries idempotent: repeating an interrupted submission cannot create a second object. The receiver stores only a hash of the deletion token.
+The legacy client sends the JSON envelope to `POST /v1/donations` with protocol and locally generated deletion-token headers. The donation run ID and deletion token make retries idempotent: repeating an interrupted submission cannot create a second object. The receiver stores only a hash of the deletion token.
 
 Deletion uses `DELETE /v1/donations/:id` with the same protocol and deletion-token headers. The receiver deletes the encrypted object before removing its metadata record.
 
@@ -59,7 +59,7 @@ To reconstruct a group, require the declared number of batches, validate identic
 
 The local client saves the group deletion credential before its first upload, encrypts one batch at a time, and retries the identical encrypted body for transient failures. A donor retries an exhausted upload from its first unacknowledged batch while the original server is running. Already accepted run IDs return their existing receipt.
 
-`DELETE /v1/donation-groups/:id` authenticates the shared token, marks the group closed to uploads, and removes up to 25 objects per call. Repeat while `remaining` is true. Requests are idempotent. Minimal group tombstones prevent delayed retries from resurrecting deleted donations.
+`DELETE /v1/donation-groups/:id` authenticates the shared token, marks the group closed to uploads, and removes up to 5 objects per call. Repeat while `remaining` is true. Requests are idempotent. Minimal group tombstones prevent delayed retries from resurrecting deleted donations.
 
 A D1 outbox queues one aggregate alert for a completed group (or one legacy donation). Atomic claims avoid concurrent deliveries. `waitUntil` attempts immediate delivery through the internal Zulip service; the scheduled handler retries pending alerts every five minutes. Zulip delivery is at least once, since its acknowledgement and the D1 update cannot be committed atomically.
 

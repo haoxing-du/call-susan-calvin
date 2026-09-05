@@ -168,13 +168,13 @@ async function removeGroup(request, env, id) {
   const group = await env.DONATION_METADATA.prepare("SELECT * FROM susan_calvin_donation_groups WHERE id = ? AND deletion_token_hash = ?").bind(id, await sha256Hex(token)).first();
   if (!group) return json({ error: "Donation not found." }, 404);
   await env.DONATION_METADATA.prepare("UPDATE susan_calvin_donation_groups SET state = 'deleting' WHERE id = ?").bind(id).run();
-  const { results } = await env.DONATION_METADATA.prepare("SELECT id, object_key FROM susan_calvin_donations WHERE group_id = ? LIMIT 25").bind(id).all();
+  const { results } = await env.DONATION_METADATA.prepare("SELECT id, object_key FROM susan_calvin_donations WHERE group_id = ? LIMIT 5").bind(id).all();
   for (const row of results) {
     await env.DONATIONS.delete(row.object_key);
     await env.DONATION_METADATA.prepare("DELETE FROM susan_calvin_donations WHERE id = ?").bind(row.id).run();
   }
   await env.DONATION_METADATA.prepare("DELETE FROM susan_calvin_notifications WHERE id = ?").bind(id).run();
-  return json({ deleted: results.length < 25, remaining: results.length === 25 });
+  return json({ deleted: results.length < 5, remaining: results.length === 5 });
 }
 
 export async function handleRequest(request, env, context) {

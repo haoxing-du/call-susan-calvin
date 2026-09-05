@@ -6,10 +6,6 @@ import { openExternalUrl } from "./platform.mjs";
 
 const args = process.argv.slice(2);
 const command = args[0] && !args[0].startsWith("--") ? args[0] : "start";
-const purple = "\x1b[38;2;141;92;255m";
-const bright = "\x1b[1m";
-const muted = "\x1b[2m";
-const reset = "\x1b[0m";
 
 function valueArgument(name, fallback) {
   return args.find((argument) => argument.startsWith(`${name}=`))?.slice(name.length + 1) ?? fallback;
@@ -45,7 +41,7 @@ async function run() {
   const port = Number(valueArgument("--port", "4318"));
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be a valid port number.");
 
-  console.log(`\n${purple}${bright}Call Susan Calvin${reset}\n${muted}Review and donate your AI agent sessions for research.${reset}\n`);
+  console.log(`\nAgent Session Donation\nReview and donate AI agent sessions for research.\n`);
   console.log("Finding local Claude Code, Cowork, and Codex sessions…");
   const local = await startLocalApp({ port, days, sources, demo });
   if (!local.sessionCount) {
@@ -53,7 +49,7 @@ async function run() {
     throw new Error(`No supported agent sessions were found in the last ${days} days.`);
   }
   console.log(`Found ${local.sessionCount} eligible sessions. Nothing has left this machine.`);
-  console.log(`\nReview them at ${purple}${local.url}${reset}\n`);
+  console.log(`\nReview them at ${local.url}\n`);
   if (!args.includes("--no-open")) openExternalUrl(local.url);
   const stop = () => local.server.close(() => process.exit(0));
   process.on("SIGINT", stop);
@@ -61,6 +57,6 @@ async function run() {
 }
 
 run().catch((error) => {
-  console.error(`\n${bright}Could not call Susan Calvin.${reset} ${error.message}\n`);
+  console.error(`\nCould not start session donation. ${error.message}\n`);
   process.exitCode = 1;
 });

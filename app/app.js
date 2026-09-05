@@ -11,7 +11,7 @@ function clearReview() {
   state.preview = null;
   setHidden(elements["review-placeholder"], false);
   setHidden(elements["review-content"], true);
-  elements["preview-button"].textContent = "Build review";
+  elements["preview-button"].textContent = "Preview data";
 }
 function invalidateConsent() {
   elements.consent.checked = false;
@@ -47,7 +47,7 @@ function renderSelectionCount() {
 
 function renderMode() {
   const descriptions = {
-    standard: "Automatically removes high-confidence credentials and common personal identifiers. You still review every line.",
+    standard: "Automatically removes high-confidence credentials and common personal identifiers. Review all messages before donating.",
     custom: "Choose automatic redactions and add plain-text or regular-expression replacements before donating.",
     unredacted: "Disables automatic redaction. Every included line must be reviewed, and an additional acknowledgement is required.",
   };
@@ -59,18 +59,18 @@ function renderMode() {
 
 async function buildPreview() {
   state.busy = true; setError(); invalidateConsent(); renderSelectionCount();
-  elements["preview-button"].textContent = "Building local review…";
+  elements["preview-button"].textContent = "Preparing preview…";
   try {
     const response = await fetch("/api/donation-preview", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ sessionIds: [...state.chosen], mode: state.mode, disabledKinds: [...state.disabledKinds], disabledMatches: [...state.disabledMatches] }),
     });
     const body = await response.json();
-    if (!response.ok) throw new Error(body.error || "Could not build the review.");
+    if (!response.ok) throw new Error(body.error || "Could not prepare the preview.");
     state.preview = body;
     renderReview();
   } catch (error) { setError(error.message); }
-  finally { state.busy = false; elements["preview-button"].textContent = "Rebuild review"; renderSelectionCount(); updateDonateButton(); }
+  finally { state.busy = false; elements["preview-button"].textContent = "Refresh preview"; renderSelectionCount(); updateDonateButton(); }
 }
 
 function redactionCheckbox(item, match = null) {
@@ -174,7 +174,7 @@ function applyCustomRedaction() {
     expression.lastIndex = 0;
     message.text = message.text.replace(expression, () => { count++; return replacement; });
   }
-  elements["custom-status"].textContent = count ? `Applied ${count} replacement${count === 1 ? "" : "s"}. Rebuild the review to undo.` : "No matches found.";
+  elements["custom-status"].textContent = count ? `Applied ${count} replacement${count === 1 ? "" : "s"}. Refresh the preview to undo.` : "No matches found.";
   if (count) { elements["custom-pattern"].value = ""; invalidateConsent(); renderConversations(); }
 }
 

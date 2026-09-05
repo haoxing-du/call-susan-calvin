@@ -1,8 +1,6 @@
-# Call Susan Calvin
+# Agent Session Donation
 
-When a robot misbehaves, what do you do?
-
-Call Susan Calvin is a local-first tool for reviewing and securely donating real-world AI agent conversations to the [Susan Calvin Project](https://susancalvin.org). It does not perform behavioral analysis, publish reports, or contact an LLM.
+Agent Session Donation is a local-first tool for reviewing and securely donating real-world AI agent conversations to the [Susan Calvin Project](https://susancalvin.org). It does not perform behavioral analysis, publish reports, or contact an LLM.
 
 ## Quick start
 

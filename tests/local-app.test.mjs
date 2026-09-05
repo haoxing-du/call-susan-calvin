@@ -8,6 +8,10 @@ test("the demo review stays local and builds an exact preview", async () => {
     const catalog = await (await fetch(`${local.url}/api/catalog`)).json();
     assert.equal(catalog.demo, true);
     assert.equal(catalog.sessions.length, 3);
+    const cowork = catalog.sessions.find((session) => session.agent === "cowork");
+    assert.equal(cowork.agentName, "Claude Cowork");
+    assert.equal(cowork.title, "Research update");
+    assert.equal(cowork.firstUserMessage, "Draft a concise research update.");
     const response = await fetch(`${local.url}/api/donation-preview`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: local.url },

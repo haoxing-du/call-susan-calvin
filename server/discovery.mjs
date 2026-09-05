@@ -4,6 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { canonicalSessionRoots } from "./platform.mjs";
 import { storeRoot } from "./store.mjs";
+import { compactLabel, userMessageExcerpt } from "./session-labels.mjs";
 
 export const DEFAULT_WINDOW_DAYS = 30;
 const cacheFile = path.join(storeRoot, "session-index-v1.json");
@@ -14,7 +15,7 @@ function opaqueId(value) {
 
 function agentName(agent) {
   if (agent === "codex") return "Codex";
-  if (agent === "cowork") return "Cowork";
+  if (agent === "cowork") return "Claude Cowork";
   return "Claude Code";
 }
 
@@ -56,25 +57,32 @@ function claudeSessionFiles(root) {
 }
 
 async function visitJsonLines(file, visit) {
-  const input = fs.createReadStream(file, { encoding: "utf8" });
+  const handle = await fs.promises.open(file, "r");
+  const input = handle.createReadStream({ encoding: "utf8" });
   const lines = readline.createInterface({ input, crlfDelay: Infinity });
-  for await (const line of lines) {
-    if (!line.trim()) continue;
-    try { visit(JSON.parse(line)); } catch { /* Malformed records are ignored. */ }
+  try {
+    for await (const line of lines) {
+      if (!line.trim()) continue;
+      try { visit(JSON.parse(line)); } catch { /* Malformed records are ignored. */ }
+    }
+  } finally {
+    lines.close();
+    input.destroy();
+    await handle.close();
   }
 }
 
 function readCache() {
   try {
     const value = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
-    return value?.version === 1 && value.entries && typeof value.entries === "object" ? value.entries : {};
+    return value?.version === 2 && value.entries && typeof value.entries === "object" ? value.entries : {};
   } catch { return {}; }
 }
 
 function writeCache(entries) {
   fs.mkdirSync(path.dirname(cacheFile), { recursive: true, mode: 0o700 });
   const temporary = `${cacheFile}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify({ version: 1, entries })}\n`, { mode: 0o600 });
+  fs.writeFileSync(temporary, `${JSON.stringify({ version: 2, entries })}\n`, { mode: 0o600 });
   fs.renameSync(temporary, cacheFile);
 }
 
@@ -90,22 +98,37 @@ async function sessionMetadata(file, agent, cache) {
   let lastTimestamp = null;
   let promptCount = 0;
   let messageCount = 0;
+  let firstUserMessage = "";
+  let sourceSessionId = path.basename(file, ".jsonl");
+  let customTitle = "";
+  let generatedTitle = "";
   const seenCoworkUuids = new Set();
   await visitJsonLines(file, (record) => {
     if (agent === "codex") {
       const payload = record?.payload;
+      if (record?.type === "session_meta" && typeof (payload?.id ?? payload?.session_id) === "string") sourceSessionId = payload.id ?? payload.session_id;
       if (record?.type === "response_item" && payload?.type === "message" && ["user", "assistant"].includes(payload.role)) {
         messageCount++;
-        if (payload.role === "user") promptCount++;
+        if (payload.role === "user") {
+          promptCount++;
+          firstUserMessage ||= userMessageExcerpt(textFromContent(payload.content));
+        }
       }
     } else {
+      if (agent === "claude" && (!record?.sessionId || record.sessionId === sourceSessionId)) {
+        if (record?.type === "custom-title") customTitle = compactLabel(record.customTitle, 160);
+        if (record?.type === "ai-title") generatedTitle = compactLabel(record.aiTitle, 160);
+      }
       if (agent === "cowork") {
         if (record?.isReplay === true || (record?.uuid && seenCoworkUuids.has(record.uuid))) return;
         if (record?.uuid) seenCoworkUuids.add(record.uuid);
       }
       if (["user", "assistant"].includes(record?.type) && !record?.isMeta) {
         messageCount++;
-        if (record.type === "user") promptCount++;
+        if (record.type === "user") {
+          promptCount++;
+          firstUserMessage ||= userMessageExcerpt(textFromContent(record?.message?.content ?? record?.content));
+        }
       }
     }
     const timestamp = agent === "cowork" ? coworkTimestamp(record) : record?.timestamp;
@@ -121,10 +144,37 @@ async function sessionMetadata(file, agent, cache) {
     promptCount,
     messageCount,
     sizeBytes: stat.size,
+    sourceSessionId,
+    title: customTitle || generatedTitle,
+    firstUserMessage,
   };
   for (const existing of Object.keys(cache)) if (cache[existing]?.id === metadata.id && existing !== key) delete cache[existing];
   cache[key] = metadata;
   return { ...metadata, file };
+}
+
+async function codexTitles(roots) {
+  const titles = new Map();
+  const files = new Set(roots.map((root) => path.join(path.dirname(root), "session_index.jsonl")));
+  for (const file of files) {
+    try {
+      await visitJsonLines(file, (record) => {
+        if (typeof record?.id !== "string" || typeof record.thread_name !== "string") return;
+        const updatedAt = typeof record.updated_at === "string" ? record.updated_at : "";
+        if (!titles.has(record.id) || updatedAt >= titles.get(record.id).updatedAt) {
+          titles.set(record.id, { title: compactLabel(record.thread_name, 160), updatedAt });
+        }
+      });
+    } catch { /* A missing or unreadable title index does not hide sessions. */ }
+  }
+  return titles;
+}
+
+function coworkTitle(file) {
+  try {
+    const sidecar = JSON.parse(fs.readFileSync(`${path.dirname(file)}.json`, "utf8"));
+    return compactLabel(sidecar?.title, 160);
+  } catch { return ""; }
 }
 
 function candidateFiles({ claudeRoot, coworkRoot, codexRoots }) {
@@ -139,17 +189,21 @@ export async function discoverAllSessions(options = {}) {
   const roots = { ...canonicalSessionRoots(), ...options };
   const persistCache = options.cache !== false && !options.claudeRoot && !options.coworkRoot && !options.codexRoots;
   const cache = persistCache ? readCache() : {};
+  const savedCodexTitles = await codexTitles(roots.codexRoots);
   const sessions = [];
   for (const candidate of candidateFiles(roots)) {
     try {
       const metadata = await sessionMetadata(candidate.file, candidate.agent, cache);
+      // Read external titles on every scan so a rename doesn't require a transcript change.
+      if (candidate.agent === "codex") metadata.title = savedCodexTitles.get(metadata.sourceSessionId)?.title || "";
+      if (candidate.agent === "cowork") metadata.title = coworkTitle(candidate.file);
       if (metadata.messageCount) sessions.push(metadata);
     } catch { /* Unreadable session files are skipped. */ }
   }
   if (persistCache) writeCache(cache);
   sessions.sort((left, right) => right.startedAt.localeCompare(left.startedAt));
   return {
-    sessions: sessions.map(({ file, ...session }) => session),
+    sessions: sessions.map(({ file, sourceSessionId, ...session }) => session),
     index: new Map(sessions.map((session) => [session.id, session])),
   };
 }

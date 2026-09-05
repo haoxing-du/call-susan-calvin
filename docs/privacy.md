@@ -4,7 +4,7 @@ Share with Susan Calvin separates local discovery and review from optional encry
 
 ## Before consent
 
-The CLI reads supported session histories from the user's Claude Code, Cowork, and Codex data directories. It streams JSONL records, caches only session-level indexing metadata, and serves the review interface on `127.0.0.1`. The local server rejects state-changing browser requests from other origins.
+The CLI reads supported session histories from the user's Claude Code, Claude Cowork, and Codex data directories. It streams JSONL records, caches session-level indexing metadata, including a short first-user-message excerpt and any title stored in the transcript, and serves the review interface on `127.0.0.1`. The local server rejects state-changing browser requests from other origins.
 
 Discovery, date and source filtering, session selection, automatic redaction, custom replacements, message editing, exclusions, and final preview all happen locally. The program makes no service request during these steps. Installing the package through npm is a separate network operation performed by npm.
 
@@ -14,7 +14,9 @@ Standard mode redacts recognized credentials, common token formats, private keys
 
 Custom mode permits automatic rules to be disabled and lets donors add plain-text or regular-expression replacements. Unredacted mode disables automatic redaction and requires an additional warning acknowledgement. Message timestamps are excluded by default.
 
-The final schema removes local session IDs and display labels. It retains each session's agent source so researchers can interpret the transcript, along with bounded counts, collector version, redaction mode, and versioned consent.
+Saved titles and first-message excerpts appear only in the local session picker. The cache uses owner-only permissions. Titles stored separately by Claude Cowork or Codex are read locally on each scan. No LLM is called to generate labels.
+
+The final schema removes local session IDs, saved titles, first-message excerpts, and display labels. It retains each session's agent source so researchers can interpret the transcript, along with bounded counts, collector version, redaction mode, and versioned consent.
 
 ## Encryption and storage
 

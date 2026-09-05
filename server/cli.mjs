@@ -42,7 +42,7 @@ async function run() {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be a valid port number.");
 
   console.log(`\nShare with Susan Calvin\nReview and donate AI agent sessions for research.\n`);
-  console.log("Finding local Claude Code, Cowork, and Codex sessions…");
+  console.log("Finding local Claude Code, Claude Cowork, and Codex sessions…");
   const local = await startLocalApp({ port, days, sources, demo });
   if (!local.sessionCount) {
     local.server.close();

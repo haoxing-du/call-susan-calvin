@@ -20,7 +20,7 @@ function fixture(overrides = {}) {
     createdAt: "2026-09-01T12:00:00.000Z",
     redactionSummary: { automatedDetections: 2 },
     sessions: [
-      { sessionId: "local-id-must-disappear", label: "Private project", source: "codex", messages: [{ role: "user", text: "Reviewed prompt" }, { role: "assistant", text: "Reviewed answer" }] },
+      { sessionId: "local-id-must-disappear", label: "Private project", title: "Saved session title", firstUserMessage: "Private display excerpt", source: "codex", messages: [{ role: "user", text: "Reviewed prompt" }, { role: "assistant", text: "Reviewed answer" }] },
       { source: "claude", messages: [{ role: "user", text: "Second prompt", timestamp: "2026-09-01T11:00:00.000Z" }] },
     ],
     consent: { researchDonation: true, consentedAt: "2026-09-01T12:01:00.000Z" },
@@ -45,6 +45,8 @@ test("the Susan Calvin schema strips local identifiers and preserves source type
   assert.deepEqual(donation.sourceTypes, ["claude", "codex"]);
   assert.equal("sessionId" in donation.sessions[0], false);
   assert.equal("label" in donation.sessions[0], false);
+  assert.equal("title" in donation.sessions[0], false);
+  assert.equal("firstUserMessage" in donation.sessions[0], false);
   assert.equal(donation.consent.consentVersion, 1);
 });
 

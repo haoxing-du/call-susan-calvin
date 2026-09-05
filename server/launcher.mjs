@@ -57,6 +57,8 @@ function publicCatalog(sessions) {
     promptCount: session.promptCount,
     messageCount: session.messageCount,
     sizeBytes: session.sizeBytes,
+    title: session.title,
+    firstUserMessage: session.firstUserMessage,
   }));
 }
 

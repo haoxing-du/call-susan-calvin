@@ -1,5 +1,6 @@
 import { readSessionMessages } from "./discovery.mjs";
 import { redactText } from "./privacy.mjs";
+import { userMessageExcerpt } from "./session-labels.mjs";
 
 function inventory(detections) {
   const kinds = new Map();
@@ -31,15 +32,12 @@ function inventory(detections) {
 }
 
 function sessionSummary(messages) {
-  let value = messages.find((message) => message.role === "user")?.text || messages[0]?.text || "Session transcript";
-  value = value
-    .replace(/<recommended_plugins>[\s\S]*?<\/recommended_plugins>/gi, " ")
-    .replace(/<environment_context>[\s\S]*?<\/environment_context>/gi, " ")
-    .replace(/<skills_instructions>[\s\S]*?<\/skills_instructions>/gi, " ")
-    .replace(/<permissions instructions>[\s\S]*?<\/permissions instructions>/gi, " ")
-    .replace(/<collaboration_mode>[\s\S]*?<\/collaboration_mode>/gi, " ")
-    .replace(/\s+/g, " ").trim();
-  return value.length > 120 ? `${value.slice(0, 119).trim()}…` : value;
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    const excerpt = userMessageExcerpt(message.text);
+    if (excerpt) return excerpt;
+  }
+  return "No user message available";
 }
 
 export async function makeDonationPreview(catalog, sessionIds, { disabledKinds = [], disabledMatches = [], unredacted = false } = {}) {
@@ -67,4 +65,3 @@ export async function makeDonationPreview(catalog, sessionIds, { disabledKinds =
     sessions,
   };
 }
-

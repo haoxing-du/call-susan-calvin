@@ -47,6 +47,8 @@ p { margin: 0 0 12px; }
 .session:last-child { border-bottom: 0; }
 .session strong { display: block; font-size: 13px; font-weight: 600; }
 .session small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.session strong, .session-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.session-excerpt { margin: 4px 0; font-size: 13px; }
 .field { display: block; margin: 20px 0 8px; }
 .field > span { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; }
 .field select { width: 100%; padding: 8px; }

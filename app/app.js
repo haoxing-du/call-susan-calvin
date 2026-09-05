@@ -31,9 +31,13 @@ function renderSessions() {
     const input = document.createElement("input"); input.type = "checkbox"; input.checked = state.chosen.has(session.id);
     input.addEventListener("change", () => { input.checked ? state.chosen.add(session.id) : state.chosen.delete(session.id); clearReview(); invalidateConsent(); renderSelectionCount(); });
     const copy = document.createElement("span");
-    const strong = document.createElement("strong"); strong.textContent = `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()}`;
-    const small = document.createElement("small"); small.textContent = `${session.messageCount} messages · ${formatBytes(session.sizeBytes)}`;
-    copy.append(strong, small); label.append(input, copy); elements.sessions.append(label);
+    const strong = document.createElement("strong"); strong.textContent = session.title || `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()}`;
+    strong.title = strong.textContent;
+    const preview = document.createElement("span"); preview.className = "session-excerpt";
+    preview.textContent = session.firstUserMessage || "No user message available";
+    preview.title = preview.textContent;
+    const small = document.createElement("small"); small.textContent = `${session.title ? `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()} · ` : ""}${session.messageCount} messages · ${formatBytes(session.sizeBytes)}`;
+    copy.append(strong, preview, small); label.append(input, copy); elements.sessions.append(label);
   }
   renderSelectionCount();
 }

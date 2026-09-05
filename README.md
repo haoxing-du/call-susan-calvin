@@ -10,13 +10,15 @@ Requires Node.js 20 or newer on macOS or Linux.
 npx share-with-susan-calvin@latest
 ```
 
-The command discovers recent Claude Code, Cowork, and Codex sessions and opens a review app on localhost. Nothing is transmitted while sessions are discovered, selected, redacted, edited, or reviewed. A donation is sent only after explicit consent and a click on **Donate**.
+The command discovers recent Claude Code, Claude Cowork, and Codex sessions and opens a review app on localhost. Nothing is transmitted while sessions are discovered, selected, redacted, edited, or reviewed. A donation is sent only after explicit consent and a click on **Donate**.
 
 To explore the complete interface using synthetic conversations without transmitting anything:
 
 ```bash
 npx share-with-susan-calvin@latest --demo
 ```
+
+Session selection shows saved titles when available and a two-line excerpt of the first user message. Titles come from Claude Code transcript records, Claude Cowork session metadata, and the Codex session index. Missing titles fall back to the agent name and date. No LLM request is made. These display details stay local and are excluded from donation metadata. ChatGPT web and Claude web histories are not currently imported.
 
 ## Review modes
 

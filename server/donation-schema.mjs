@@ -29,7 +29,8 @@ export function normalizeDonation(value) {
     for (const message of session.messages) {
       if (!message || !["user", "assistant"].includes(message.role)) return null;
       const text = cleanText(message.text).trim();
-      if (!text) continue;
+      // Reject blank edits instead of silently removing a transcript turn.
+      if (!text) return null;
       if (text.length > MAX_MESSAGE_LENGTH) return null;
       const at = timestamp(message.timestamp);
       messages.push({ role: message.role, text, ...(at ? { timestamp: at } : {}) });
@@ -75,4 +76,3 @@ export function sanitizeDonation(value) {
   const donation = normalizeDonation(value);
   return donation && new TextEncoder().encode(JSON.stringify(donation)).byteLength <= MAX_DONATION_BYTES ? donation : null;
 }
-

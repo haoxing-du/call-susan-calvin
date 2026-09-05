@@ -36,7 +36,7 @@ The locally reviewed and normalized plaintext uses the format `susan-calvin-dona
 }
 ```
 
-The schema accepts at most 250 sessions, 50,000 messages, 100,000 characters per message, and 20 MB of normalized JSON. Unknown agent sources, roles, redaction modes, or invalid timestamps are rejected. Local labels and session identifiers are discarded.
+The schema accepts at most 250 sessions, 50,000 messages, 100,000 characters per message, and 20 MB of normalized JSON. Unknown agent sources, roles, redaction modes, or invalid timestamps are rejected. Empty or whitespace-only message text is rejected rather than silently removing a turn. Local labels and session identifiers are discarded.
 
 ## Encrypted envelope
 

@@ -21,7 +21,9 @@ function invalidateConsent() {
 }
 function updateDonateButton() {
   const messages = state.preview?.sessions.reduce((sum, session) => sum + session.messages.length, 0) || 0;
-  elements.donate.disabled = state.busy || !messages || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
+  const hasEmptyMessage = state.preview?.sessions.some((session) => session.messages.some((message) => !message.text.trim())) || false;
+  setHidden(elements["message-validation"], !hasEmptyMessage);
+  elements.donate.disabled = state.busy || !messages || hasEmptyMessage || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
 }
 
 function renderSessions() {
@@ -120,12 +122,6 @@ function renderRedactions() {
   elements.redactions.append(wrapper);
 }
 
-function removeMessage(sessionIndex, messageIndex) {
-  state.preview.sessions[sessionIndex].messages.splice(messageIndex, 1);
-  if (!state.preview.sessions[sessionIndex].messages.length) state.preview.sessions.splice(sessionIndex, 1);
-  invalidateConsent(); renderConversations();
-}
-
 function renderConversations() {
   elements["conversation-preview"].replaceChildren();
   state.preview.sessions.forEach((session, sessionIndex) => {
@@ -137,13 +133,18 @@ function renderConversations() {
     const count = document.createElement("b"); count.textContent = `${session.messages.length} messages`;
     title.append(strong, small); summary.append(title, count); details.append(summary);
     const messages = document.createElement("div"); messages.className = "messages";
-    session.messages.forEach((message, messageIndex) => {
-      const row = document.createElement("div"); row.className = "message";
+    session.messages.forEach((message) => {
+      const row = document.createElement("div"); row.className = `message ${message.role === "user" ? "message-user" : "message-agent"}`;
       const role = document.createElement("span"); role.textContent = message.role === "assistant" ? "Agent" : "You";
       const textarea = document.createElement("textarea"); textarea.value = message.text; textarea.setAttribute("aria-label", `${role.textContent} message`);
-      textarea.addEventListener("input", () => { message.text = textarea.value; invalidateConsent(); });
-      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Exclude"; remove.addEventListener("click", () => removeMessage(sessionIndex, messageIndex));
-      row.append(role, textarea, remove); messages.append(row);
+      textarea.required = true;
+      textarea.setAttribute("aria-invalid", String(!message.text.trim()));
+      textarea.addEventListener("input", () => {
+        message.text = textarea.value;
+        textarea.setAttribute("aria-invalid", String(!message.text.trim()));
+        invalidateConsent();
+      });
+      row.append(role, textarea); messages.append(row);
     });
     details.append(messages); elements["conversation-preview"].append(details);
   });

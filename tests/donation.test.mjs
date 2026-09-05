@@ -58,6 +58,22 @@ test("unredacted donations require their additional acknowledgement", () => {
   assert.match(donation.consent.statement, /not automatically redacted/i);
 });
 
+test("blank edits cannot silently remove transcript turns", () => {
+  for (const text of ["", " \n\t ", "\u0000"]) {
+    const donation = fixture();
+    donation.sessions[0].messages[0].text = text;
+    assert.equal(sanitizeDonation(donation), null);
+  }
+  const donation = fixture();
+  donation.sessions[0].messages[0].text = "[REDACTED]";
+  const normalized = sanitizeDonation(donation);
+  assert.deepEqual(normalized.sessions[0].messages, [
+    { role: "user", text: "[REDACTED]" },
+    { role: "assistant", text: "Reviewed answer" },
+  ]);
+  assert.equal(normalized.redactionSummary.messages, 3);
+});
+
 test("automatic redaction can be reviewed and selectively disabled", () => {
   const value = "Email me at person@example.com and use api_key=secret-value-12345.";
   const redacted = redactText(value);
@@ -108,4 +124,3 @@ test("discovers and reads all supported demo session formats", async () => {
     assert.ok(messages.every((message) => ["user", "assistant"].includes(message.role) && message.text));
   }
 });
-

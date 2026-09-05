@@ -32,7 +32,7 @@
         </section>
 
         <section class="card review">
-          <div class="step"><span>2</span><div><h2>Review data</h2><p>Review each message. Edit or exclude content before donating.</p></div></div>
+          <div class="step"><span>2</span><div><h2>Review data</h2><p>Redact sensitive text as needed. To omit a transcript, deselect the entire session in step 1.</p></div></div>
           <div id="review-placeholder" class="placeholder">Select sessions and click Preview data.</div>
           <div id="review-content" class="hidden">
             <div id="warning"></div>
@@ -50,6 +50,7 @@
             </section>
             <label class="timestamp-option"><input id="timestamps" type="checkbox"> Include message timestamps</label>
             <div id="conversation-preview" class="conversations"></div>
+            <p id="message-validation" class="error hidden" aria-live="polite">Messages cannot be empty. Use [REDACTED] to hide sensitive text while keeping the turn, or deselect the session in step 1.</p>
             <div class="step consent-heading"><span>3</span><div><h2>Confirm donation</h2><p>The reviewed data is encrypted on this device before upload.</p></div></div>
             <label id="unredacted-consent" class="consent danger hidden"><input id="unredacted-ack" type="checkbox"> I understand that automatic redaction is disabled and private credentials, code, URLs, paths, and personal details may be transmitted.</label>
             <label class="consent"><input id="consent" type="checkbox"><span>I consent to transmit this reviewed data to the Susan Calvin Project for research under the <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">data policy</a>.</span></label>
@@ -71,4 +72,3 @@
     <script type="module" src="/app.js"></script>
   </body>
 </html>
-

@@ -1,6 +1,6 @@
 {
   "name": "share-with-susan-calvin",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Review and securely donate your local AI agent sessions to the Susan Calvin Project.",
   "license": "Apache-2.0",
   "type": "module",

@@ -56,5 +56,12 @@ test("demo donations exercise consent validation without transmitting", async ()
     });
     assert.equal(response.status, 201);
     assert.deepEqual(await response.json(), { accepted: true, donationId: "demo-not-transmitted", demo: true });
+    donation.sessions[0].messages[0].text = "   ";
+    const blankResponse = await fetch(`${local.url}/api/donations`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: local.url },
+      body: JSON.stringify({ donation }),
+    });
+    assert.equal(blankResponse.status, 400, "an empty message must not be silently excluded");
   } finally { await new Promise((resolve) => local.server.close(resolve)); }
 });

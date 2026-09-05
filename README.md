@@ -23,7 +23,7 @@ Session selection shows saved titles when available and a two-line excerpt of th
 ## Review modes
 
 - **Standard** applies high-confidence credential and common personal-identifier redactions locally, then shows every included message.
-- **Customize** lets the donor disable individual automatic replacements, add text or regular-expression replacements, edit messages, and exclude messages or sessions.
+- **Customize** lets the donor disable individual automatic replacements, add text or regular-expression replacements, redact message text, and deselect entire sessions. Individual messages cannot be removed; blank messages must be replaced with an explicit marker such as `[REDACTED]` before donating.
 - **Unredacted** disables automatic safeguards, displays a prominent warning, and requires an additional acknowledgement.
 
 Timestamps are excluded unless the donor opts in. Project names, filesystem paths used for discovery, and local session identifiers are never included as donation metadata.
@@ -38,6 +38,14 @@ share-with-susan-calvin delete <donation-id>
 ```
 
 Deletion receipts are stored with restrictive permissions under `~/.call-susan-calvin/donation-receipts`. This directory is retained from the previous package name so existing donations can still be managed. Deleting a donation removes both its encrypted object and its research metadata before removing the local receipt.
+
+## Local server lifetime
+
+The command runs a foreground server on `127.0.0.1:4318` by default. Stop it with Ctrl+C in the terminal. Closing the browser tab or finishing a donation does not stop the server. There is no idle timeout, background service, or automatic restart.
+
+Session selections, preview edits, custom redactions, and consent are held in browser memory and are lost on page reload or tab closure. The server builds its session catalog at startup; restart the command to discover new sessions. It rereads selected transcripts when you build a preview. Source history files are never modified.
+
+A session index (including brief excerpts and transcript titles) and successful donation deletion receipts persist under `~/.call-susan-calvin/` with owner-only permissions. Draft transcripts and browser edits are not saved there. Demo mode does not write this index or donation receipts.
 
 ## Security model
 

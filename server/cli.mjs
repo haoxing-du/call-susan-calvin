@@ -12,7 +12,7 @@ function valueArgument(name, fallback) {
 }
 
 function help() {
-  console.log(`call-susan-calvin [--days=30] [--source=claude,cowork,codex] [--no-open]\ncall-susan-calvin --demo\ncall-susan-calvin list\ncall-susan-calvin delete <donation-id>`);
+  console.log(`share-with-susan-calvin [--days=30] [--source=claude,cowork,codex] [--no-open]\nshare-with-susan-calvin --demo\nshare-with-susan-calvin list\nshare-with-susan-calvin delete <donation-id>`);
 }
 
 async function run() {
@@ -41,7 +41,7 @@ async function run() {
   const port = Number(valueArgument("--port", "4318"));
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be a valid port number.");
 
-  console.log(`\nAgent Session Donation\nReview and donate AI agent sessions for research.\n`);
+  console.log(`\nShare with Susan Calvin\nReview and donate AI agent sessions for research.\n`);
   console.log("Finding local Claude Code, Cowork, and Codex sessions…");
   const local = await startLocalApp({ port, days, sources, demo });
   if (!local.sessionCount) {

@@ -79,7 +79,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
     const mutating = request.method !== "GET" && request.method !== "HEAD";
     try {
       if (mutating && !expectedOrigins.has(request.headers.origin || "")) return json(response, 403, { error: "This local action must come from the review app." });
-      if (request.method === "GET" && url.pathname === "/api/health") return json(response, 200, { app: "call-susan-calvin", version: APP_VERSION, local: true, demo });
+      if (request.method === "GET" && url.pathname === "/api/health") return json(response, 200, { app: "share-with-susan-calvin", version: APP_VERSION, local: true, demo });
       if (request.method === "GET" && url.pathname === "/api/catalog") return json(response, 200, {
         sessions: publicCatalog(selected),
         discoveredSessions: catalog.sessions.length,
@@ -98,7 +98,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
       }
       if (request.method === "POST" && url.pathname === "/api/donations") {
         const body = await readBody(request, MAX_DONATION_BYTES + 1_000_000);
-        const donation = sanitizeDonation({ ...body.donation, collector: { name: "call-susan-calvin", version: APP_VERSION } });
+        const donation = sanitizeDonation({ ...body.donation, collector: { name: "share-with-susan-calvin", version: APP_VERSION } });
         if (!donation) return json(response, 400, { error: "The reviewed donation is invalid or too large." });
         if (demo) return json(response, 201, { accepted: true, donationId: "demo-not-transmitted", demo: true });
         const deletionToken = pendingDeletionTokens.get(donation.donationRunId) || createDeletionToken();

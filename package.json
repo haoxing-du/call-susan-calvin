@@ -1,6 +1,6 @@
 {
-  "name": "call-susan-calvin",
-  "version": "0.1.0",
+  "name": "share-with-susan-calvin",
+  "version": "0.1.1",
   "description": "Review and securely donate your local AI agent sessions to the Susan Calvin Project.",
   "license": "Apache-2.0",
   "type": "module",
@@ -30,7 +30,7 @@
     "node": ">=20"
   },
   "bin": {
-    "call-susan-calvin": "server/cli.mjs"
+    "share-with-susan-calvin": "server/cli.mjs"
   },
   "files": [
     "app/",

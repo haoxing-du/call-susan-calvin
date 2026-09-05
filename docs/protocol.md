@@ -10,7 +10,7 @@ The locally reviewed and normalized plaintext uses the format `susan-calvin-dona
 {
   "format": "susan-calvin-donation-v1",
   "donationRunId": "opaque UUID",
-  "collector": { "name": "call-susan-calvin", "version": "0.1.0" },
+  "collector": { "name": "share-with-susan-calvin", "version": "0.1.1" },
   "sourceTypes": ["codex"],
   "redactionMode": "standard",
   "createdAt": "ISO-8601 timestamp",

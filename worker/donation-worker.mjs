@@ -74,7 +74,7 @@ async function acceptDonation(request, env) {
   try {
     await env.DONATIONS.put(objectKey, serialized, {
       httpMetadata: { contentType: "application/json" },
-      customMetadata: { donationId: id, encryptionKeyId: donation.encryption.keyId, collector: "call-susan-calvin" },
+      customMetadata: { donationId: id, encryptionKeyId: donation.encryption.keyId, collector: "share-with-susan-calvin" },
     });
   } catch { return json({ error: "Encrypted donation storage is temporarily unavailable." }, 503); }
   try {

@@ -1,6 +1,6 @@
 # Privacy and security
 
-Call Susan Calvin separates local discovery and review from optional encrypted transmission.
+Share with Susan Calvin separates local discovery and review from optional encrypted transmission.
 
 ## Before consent
 
@@ -26,7 +26,7 @@ The receiving Worker accepts only the versioned encrypted envelope. Ciphertext i
 
 Successful donations create a local deletion receipt under `~/.call-susan-calvin/donation-receipts`. Directories use owner-only permissions and receipt files use mode `0600`. The deletion token itself is stored only in this local receipt and as a one-way hash in remote metadata.
 
-`call-susan-calvin delete <donation-id>` authenticates with that receipt, deletes the ciphertext object, deletes its metadata record, and then removes the local receipt. Losing the receipt may make self-service deletion impossible, so users should preserve the local application directory while a donation remains active.
+`share-with-susan-calvin delete <donation-id>` authenticates with that receipt, deletes the ciphertext object, deletes its metadata record, and then removes the local receipt. Losing the receipt may make self-service deletion impossible, so users should preserve the local application directory while a donation remains active.
 
 The public data-use and storage policy is maintained at [susancalvin.org/data-policy](https://susancalvin.org/data-policy).
 

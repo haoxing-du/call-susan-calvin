@@ -44,7 +44,7 @@ export function normalizeDonation(value) {
   return {
     format: DONATION_FORMAT,
     donationRunId: value.donationRunId,
-    collector: { name: "call-susan-calvin", version: cleanText(value.collector?.version).slice(0, 32) || "unknown" },
+    collector: { name: "share-with-susan-calvin", version: cleanText(value.collector?.version).slice(0, 32) || "unknown" },
     sourceTypes,
     redactionMode: value.redactionMode,
     createdAt: timestamp(value.createdAt) || new Date().toISOString(),

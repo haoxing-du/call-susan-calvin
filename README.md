@@ -1,13 +1,13 @@
-# Agent Session Donation
+# Share with Susan Calvin
 
-Agent Session Donation is a local-first tool for reviewing and securely donating real-world AI agent conversations to the [Susan Calvin Project](https://susancalvin.org). It does not perform behavioral analysis, publish reports, or contact an LLM.
+Share with Susan Calvin is a local-first tool for reviewing and securely donating real-world AI agent conversations to the [Susan Calvin Project](https://susancalvin.org). It does not perform behavioral analysis, publish reports, or contact an LLM.
 
 ## Quick start
 
 Requires Node.js 20 or newer on macOS or Linux.
 
 ```bash
-npx call-susan-calvin@latest
+npx share-with-susan-calvin@latest
 ```
 
 The command discovers recent Claude Code, Cowork, and Codex sessions and opens a review app on localhost. Nothing is transmitted while sessions are discovered, selected, redacted, edited, or reviewed. A donation is sent only after explicit consent and a click on **Donate**.
@@ -15,7 +15,7 @@ The command discovers recent Claude Code, Cowork, and Codex sessions and opens a
 To explore the complete interface using synthetic conversations without transmitting anything:
 
 ```bash
-npx call-susan-calvin@latest --demo
+npx share-with-susan-calvin@latest --demo
 ```
 
 ## Review modes
@@ -29,13 +29,13 @@ Timestamps are excluded unless the donor opts in. Project names, filesystem path
 ## Options and management
 
 ```text
-call-susan-calvin [--days=30] [--source=claude,cowork,codex] [--no-open]
-call-susan-calvin --demo
-call-susan-calvin list
-call-susan-calvin delete <donation-id>
+share-with-susan-calvin [--days=30] [--source=claude,cowork,codex] [--no-open]
+share-with-susan-calvin --demo
+share-with-susan-calvin list
+share-with-susan-calvin delete <donation-id>
 ```
 
-Deletion receipts are stored with restrictive permissions under `~/.call-susan-calvin/donation-receipts`. Deleting a donation removes both its encrypted object and its research metadata before removing the local receipt.
+Deletion receipts are stored with restrictive permissions under `~/.call-susan-calvin/donation-receipts`. This directory is retained from the previous package name so existing donations can still be managed. Deleting a donation removes both its encrypted object and its research metadata before removing the local receipt.
 
 ## Security model
 

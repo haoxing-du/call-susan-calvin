@@ -1,4 +1,4 @@
 {"timestamp":"2026-08-29T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-demo","cwd":"/Users/demo/project"}}
-{"timestamp":"2026-08-29T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Review the launch checklist and point out anything missing."}]}}
+{"timestamp":"2026-08-29T10:00:00.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>Demo workspace context supplied by Codex.</environment_context>"}]}}
+{"timestamp":"2026-08-29T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<recommended_plugins>\nHere is a list of plugins that are available but not installed.\n\n- Example (example@demo)\n</recommended_plugins>\n\nReview the launch checklist and point out anything missing."}]}}
 {"timestamp":"2026-08-29T10:00:04.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The rollback owner and post-launch verification window are missing."}]}}
-

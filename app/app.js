@@ -1,3 +1,5 @@
+import { splitCodexContext } from "./session-context.js";
+
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((element) => [element.id, element]));
 const state = {
   catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Set(),
@@ -21,7 +23,8 @@ function invalidateConsent() {
 }
 function updateDonateButton() {
   const messages = state.preview?.sessions.reduce((sum, session) => sum + session.messages.length, 0) || 0;
-  const hasEmptyMessage = state.preview?.sessions.some((session) => session.messages.some((message) => !message.text.trim())) || false;
+  const hasEmptyMessage = (state.preview?.sessions.some((session) => session.messages.some((message) => !message.text.trim())) || false)
+    || [...elements["conversation-preview"].querySelectorAll("textarea")].some((editor) => !editor.value.trim());
   setHidden(elements["message-validation"], !hasEmptyMessage);
   elements.donate.disabled = state.busy || !messages || hasEmptyMessage || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
 }
@@ -134,17 +137,29 @@ function renderConversations() {
     title.append(strong, small); summary.append(title, count); details.append(summary);
     const messages = document.createElement("div"); messages.className = "messages";
     session.messages.forEach((message) => {
-      const row = document.createElement("div"); row.className = `message ${message.role === "user" ? "message-user" : "message-agent"}`;
-      const role = document.createElement("span"); role.textContent = message.role === "assistant" ? "Agent" : "You";
-      const textarea = document.createElement("textarea"); textarea.value = message.text; textarea.setAttribute("aria-label", `${role.textContent} message`);
-      textarea.required = true;
-      textarea.setAttribute("aria-invalid", String(!message.text.trim()));
-      textarea.addEventListener("input", () => {
-        message.text = textarea.value;
-        textarea.setAttribute("aria-invalid", String(!message.text.trim()));
-        invalidateConsent();
-      });
-      row.append(role, textarea); messages.append(row);
+      const parts = session.source === "codex" && message.role === "user" ? splitCodexContext(message.text) : { context: "", text: message.text };
+      const editor = (part, label) => {
+        const textarea = document.createElement("textarea"); textarea.value = parts[part]; textarea.setAttribute("aria-label", label);
+        textarea.required = true;
+        textarea.setAttribute("aria-invalid", String(!parts[part].trim()));
+        textarea.addEventListener("input", () => {
+          parts[part] = textarea.value;
+          message.text = parts.context + parts.text;
+          textarea.setAttribute("aria-invalid", String(!textarea.value.trim()));
+          invalidateConsent();
+        });
+        return textarea;
+      };
+      if (parts.context) {
+        const context = document.createElement("details"); context.className = "message-context";
+        const heading = document.createElement("summary"); heading.textContent = "Codex context · included in donation";
+        context.append(heading, editor("context", "Codex context")); messages.append(context);
+      }
+      if (parts.text || !parts.context) {
+        const row = document.createElement("div"); row.className = `message ${message.role === "user" ? "message-user" : "message-agent"}`;
+        const role = document.createElement("span"); role.textContent = message.role === "assistant" ? "Agent" : "You";
+        row.append(role, editor("text", `${role.textContent} message`)); messages.append(row);
+      }
     });
     details.append(messages); elements["conversation-preview"].append(details);
   });

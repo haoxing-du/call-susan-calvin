@@ -39,6 +39,8 @@ share-with-susan-calvin delete <donation-id>
 
 Deletion receipts are stored with restrictive permissions under `~/.call-susan-calvin/donation-receipts`. This directory is retained from the previous package name so existing donations can still be managed. Deleting a donation removes both its encrypted object and its research metadata before removing the local receipt.
 
+Codex can store injected setup and plugin information with the user role. In the review, recognized leading context blocks appear in a collapsed **Codex context · included in donation** section, separate from the actual user prompt. Expand the section to inspect or redact it. The original role, message order, and context remain in the reviewed donation.
+
 ## Local server lifetime
 
 The command runs a foreground server on `127.0.0.1:4318` by default. Stop it with Ctrl+C in the terminal. Closing the browser tab or finishing a donation does not stop the server. There is no idle timeout, background service, or automatic restart.

@@ -18,6 +18,8 @@ Saved titles and first-message excerpts appear only in the local session picker.
 
 The final schema removes local session IDs, saved titles, first-message excerpts, and display labels. It retains each session's agent source so researchers can interpret the transcript, along with bounded counts, collector version, redaction mode, and versioned consent.
 
+Recognized leading Codex context blocks are folded into labeled sections in the review. They are still included in the donation and can be expanded and edited. Separating their display does not change the original message roles, order, or content.
+
 ## Encryption and storage
 
 After consent, the reviewed payload is validated against a strict size-bounded schema and compressed with gzip. A new random 256-bit content key and 96-bit IV are generated for each donation. Transcript content is protected with authenticated AES-256-GCM encryption, and the content key is wrapped using RSA-OAEP with SHA-256. Authenticated metadata prevents counts or consent fields from being changed without detection.

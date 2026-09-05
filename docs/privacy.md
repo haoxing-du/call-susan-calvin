@@ -28,13 +28,17 @@ The receiving Worker accepts only the versioned encrypted envelope. Ciphertext i
 
 ## Local state and deletion
 
-The server runs in the foreground until stopped (for example, with Ctrl+C). Closing the browser tab or completing a donation does not stop it. There is no idle timeout or automatic restart. Selections, edits, custom redactions, and consent are browser-memory state and reset when the page reloads or the tab closes. The session catalog is discovered at server startup; restart the command to include newly created sessions. Source histories are never modified.
+The server runs in the foreground until stopped with Ctrl+C or the success screen's close button. Closing the tab alone does not stop it. The catalog is discovered at startup; restart to include newly created sessions. Source histories are never modified.
 
-The session index persists under `~/.call-susan-calvin/session-index-v1.json` and includes bounded first-message excerpts and titles from transcript records. It is a discovery cache, not a saved review draft. Demo mode does not persist the index or donation receipts.
+Review snapshots, including editable transcripts and local redaction-match inventories, are written to a private temporary directory (`0700`, files `0600`) so large selections do not have to remain in memory. Navigating saves edits locally. Snapshots are removed after a successful upload, on replacement, or on normal server shutdown. Forced termination may leave temporary files. Browser selection and consent reset on reload; upload resumption requires the original running review.
 
-Successful donations create a local deletion receipt under `~/.call-susan-calvin/donation-receipts`. Directories use owner-only permissions and receipt files use mode `0600`. The deletion token itself is stored only in this local receipt and as a one-way hash in remote metadata.
+The session index persists under `~/.call-susan-calvin/session-index-v1.json` and includes bounded first-message excerpts and titles. Demo mode does not persist the index or donation receipts.
 
-`share-with-susan-calvin delete <donation-id>` authenticates with that receipt, deletes the ciphertext object, deletes its metadata record, and then removes the local receipt. Losing the receipt may make self-service deletion impossible, so users should preserve the local application directory while a donation remains active.
+Before a grouped upload begins, a deletion receipt is written under `~/.call-susan-calvin/donation-receipts`, with owner-only directory and file permissions. It covers every batch, including partial uploads and uncertain responses. Each batch is encrypted separately; sessions and their message order remain intact. Only the local receipt stores the deletion token; remote storage holds a one-way hash.
+
+`share-with-susan-calvin delete <donation-id>` removes every encrypted batch and its transcript metadata before removing the local receipt. A minimal group tombstone (opaque ID, hashed deletion credential, batch count, redaction mode, deleted state) remains to reject delayed uploads. Losing the receipt may make self-service deletion impossible.
+
+An internal service sends a Zulip alert containing aggregate session/message/detection counts, redaction mode, and collector name. It receives no transcript text, saved titles, local paths, or deletion credentials. Notifications are queued durably after the complete donation arrives; failed deliveries retry. Delivery is at least once: a rare lost acknowledgement from Zulip can cause a repeated alert.
 
 The public data-use and storage policy is maintained at [susancalvin.org/data-policy](https://susancalvin.org/data-policy).
 

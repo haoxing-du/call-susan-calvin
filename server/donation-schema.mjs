@@ -3,7 +3,7 @@ export const DONATION_CONSENT_VERSION = 1;
 export const MAX_DONATION_BYTES = 20_000_000;
 const MAX_SESSIONS = 250;
 const MAX_MESSAGES = 50_000;
-const MAX_MESSAGE_LENGTH = 100_000;
+const MAX_MESSAGE_LENGTH = 7_000_000;
 const sources = new Set(["claude", "cowork", "codex"]);
 const modes = new Set(["standard", "custom", "unredacted"]);
 
@@ -21,6 +21,7 @@ export function normalizeDonation(value) {
   if (!/^[0-9a-f-]{36}$/.test(value.donationRunId || "")) return null;
   if (value.redactionMode === "unredacted" && value.consent?.unredactedData !== true) return null;
   if (!Array.isArray(value.sessions) || !value.sessions.length || value.sessions.length > MAX_SESSIONS) return null;
+  if (value.group && (!/^[0-9a-f-]{36}$/.test(value.group.id || "") || !Number.isInteger(value.group.index) || !Number.isInteger(value.group.count) || value.group.count < 1 || value.group.count > 100_000 || value.group.index < 0 || value.group.index >= value.group.count)) return null;
   const sessions = [];
   let messageCount = 0;
   for (const session of value.sessions) {
@@ -45,6 +46,7 @@ export function normalizeDonation(value) {
   return {
     format: DONATION_FORMAT,
     donationRunId: value.donationRunId,
+    ...(value.group ? { group: { id: value.group.id, index: value.group.index, count: value.group.count } } : {}),
     collector: { name: "share-with-susan-calvin", version: cleanText(value.collector?.version).slice(0, 32) || "unknown" },
     sourceTypes,
     redactionMode: value.redactionMode,

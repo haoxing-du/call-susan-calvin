@@ -27,6 +27,7 @@ export function saveDonationReceipt(value) {
   ensureStore();
   const receipt = {
     donationId: value.donationId,
+    ...(value.group ? { group: true } : {}),
     deletionToken: value.deletionToken,
     donationRunId: String(value.donationRunId || "").slice(0, 64),
     sourceTypes: Array.isArray(value.sourceTypes) ? value.sourceTypes.filter((item) => ["claude", "cowork", "codex"].includes(item)) : [],

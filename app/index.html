@@ -26,6 +26,7 @@
           <div class="step"><span>1</span><div><h2>Select sessions</h2><p>Sessions from local agent history.</p></div></div>
           <div class="selection-heading"><label><input id="select-all" type="checkbox" checked> Select all</label><span id="selection-count"></span></div>
           <div id="sessions" class="sessions"></div>
+          <div class="pagination"><button id="sessions-prev" aria-label="Previous session page">←</button><span id="session-page"></span><button id="sessions-next" aria-label="Next session page">→</button></div>
           <label class="field"><span>Donation mode</span><select id="mode"><option value="standard">Standard redactions</option><option value="custom">Customize redactions</option><option value="unredacted">Unredacted</option></select></label>
           <p id="mode-description" class="hint"></p>
           <button id="preview-button" class="primary">Preview data</button>
@@ -39,7 +40,7 @@
             <div id="redaction-summary"></div>
             <div id="redactions"></div>
             <section id="custom-redaction" class="custom hidden">
-              <h3>Add another redaction</h3>
+              <h3>Add a redaction to this session</h3>
               <div class="custom-fields">
                 <select id="custom-mode" aria-label="Custom redaction type"><option value="text">Plain text</option><option value="regex">Regular expression</option></select>
                 <input id="custom-pattern" maxlength="200" placeholder="Text or pattern to remove">
@@ -49,21 +50,26 @@
               <p id="custom-status" class="hint"></p>
             </section>
             <label class="timestamp-option"><input id="timestamps" type="checkbox"> Include message timestamps</label>
+            <div class="pagination review-navigation"><button id="review-prev">Previous session</button><label>Session <input id="review-position" type="number" min="1" value="1" aria-label="Session number"></label><span id="review-total"></span><button id="review-next">Next session</button></div>
             <div id="conversation-preview" class="conversations"></div>
+            <div class="pagination"><button id="messages-prev" aria-label="Previous messages">←</button><span id="message-page"></span><button id="messages-next" aria-label="Next messages">→</button></div>
             <p id="message-validation" class="error hidden" aria-live="polite">Messages cannot be empty. Use [REDACTED] to hide sensitive text while keeping the turn, or deselect the session in step 1.</p>
             <div class="step consent-heading"><span>3</span><div><h2>Confirm donation</h2><p>The reviewed data is encrypted on this device before upload.</p></div></div>
             <label id="unredacted-consent" class="consent danger hidden"><input id="unredacted-ack" type="checkbox"> I understand that automatic redaction is disabled and private credentials, code, URLs, paths, and personal details may be transmitted.</label>
             <label class="consent"><input id="consent" type="checkbox"><span>I consent to transmit this reviewed data to the Susan Calvin Project for research under the <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">data policy</a>.</span></label>
             <button id="donate" class="donate" disabled>Donate reviewed data</button>
           </div>
+          <p id="progress" class="hint" role="status"></p>
           <p id="error" class="error" aria-live="assertive"></p>
         </section>
       </div>
 
       <section id="success" class="card success hidden">
         <h2>Donation received</h2>
-        <p>The data was encrypted on this device before upload. A receipt saved on this device lets you delete the donation later.</p>
+        <p id="success-description">The data was encrypted on this device before upload. A receipt saved on this device lets you delete the donation later.</p>
         <div class="reference"><span>Donation reference</span><code id="donation-id"></code></div>
+        <button id="close-app" class="primary">Close window and stop local server</button>
+        <p id="close-status" class="hint" role="status"></p>
         <button id="delete-donation" class="secondary">Delete donation</button>
         <p id="delete-status" class="hint"></p>
       </section>

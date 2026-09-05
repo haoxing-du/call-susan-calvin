@@ -3,14 +3,14 @@ import { splitCodexContext } from "./session-context.js";
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((element) => [element.id, element]));
 const state = {
   catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Set(),
-  donationRunId: crypto.randomUUID(), acceptedId: "", busy: false,
+  acceptedId: "", busy: false, review: null, sessionPage: 0, reviewIndex: 0, messagePage: 0, dirty: false,
 };
 
 function setHidden(element, hidden) { element.classList.toggle("hidden", hidden); }
 function formatBytes(value) { return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(1)} MB` : `${Math.ceil(value / 1_000)} KB`; }
 function setError(message = "") { elements.error.textContent = message; }
 function clearReview() {
-  state.preview = null;
+  state.preview = null; state.review = null; state.dirty = false;
   setHidden(elements["review-placeholder"], false);
   setHidden(elements["review-content"], true);
   elements["preview-button"].textContent = "Preview data";
@@ -18,7 +18,6 @@ function clearReview() {
 function invalidateConsent() {
   elements.consent.checked = false;
   elements["unredacted-ack"].checked = false;
-  state.donationRunId = crypto.randomUUID();
   updateDonateButton();
 }
 function updateDonateButton() {
@@ -31,7 +30,7 @@ function updateDonateButton() {
 
 function renderSessions() {
   elements.sessions.replaceChildren();
-  for (const session of state.catalog) {
+  for (const session of state.catalog.slice(state.sessionPage * 30, (state.sessionPage + 1) * 30)) {
     const label = document.createElement("label"); label.className = "session";
     const input = document.createElement("input"); input.type = "checkbox"; input.checked = state.chosen.has(session.id);
     input.addEventListener("change", () => { input.checked ? state.chosen.add(session.id) : state.chosen.delete(session.id); clearReview(); invalidateConsent(); renderSelectionCount(); });
@@ -44,6 +43,9 @@ function renderSessions() {
     const small = document.createElement("small"); small.textContent = `${session.title ? `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()} · ` : ""}${session.messageCount} messages · ${formatBytes(session.sizeBytes)}`;
     copy.append(strong, preview, small); label.append(input, copy); elements.sessions.append(label);
   }
+  elements["session-page"].textContent = `${state.sessionPage + 1} / ${Math.max(1, Math.ceil(state.catalog.length / 30))}`;
+  elements["sessions-prev"].disabled = state.sessionPage === 0;
+  elements["sessions-next"].disabled = (state.sessionPage + 1) * 30 >= state.catalog.length;
   renderSelectionCount();
 }
 
@@ -66,20 +68,67 @@ function renderMode() {
   elements.donate.firstChild.textContent = state.mode === "unredacted" ? "Donate unredacted data " : "Donate reviewed data ";
 }
 
+async function api(url, method = "GET", body) {
+  const response = await fetch(url, { method, ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "The local request failed.");
+  return result;
+}
+
+function lockControls(locked) {
+  for (const control of elements.workspace.querySelectorAll("input, select, textarea, button")) control.disabled = locked;
+  if (!locked) { renderSelectionCount(); updateDonateButton(); updateNavigation(); }
+}
+function updateNavigation() {
+  elements["sessions-prev"].disabled = state.busy || state.sessionPage === 0;
+  elements["sessions-next"].disabled = state.busy || (state.sessionPage + 1) * 30 >= state.catalog.length;
+  elements["messages-prev"].disabled = state.busy || state.messagePage === 0;
+  elements["messages-next"].disabled = state.busy || (state.messagePage + 1) * 40 >= (state.preview?.sessions[0]?.messages.length || 0);
+  elements["review-prev"].disabled = state.busy || state.reviewIndex === 0;
+  elements["review-next"].disabled = state.busy || state.reviewIndex + 1 >= (state.review?.sessions.length || 0);
+  elements["review-position"].value = state.reviewIndex + 1;
+  elements["review-position"].max = state.review?.sessions.length || 1;
+  elements["review-total"].textContent = `of ${state.review?.sessions.length || 0} sessions`;
+}
+async function saveEdits() {
+  if (!state.dirty) return;
+  await api(`/api/reviews/${state.review.id}/sessions/${state.reviewIndex}`, "PUT", { messages: state.preview.sessions[0].messages });
+  state.dirty = false;
+}
+async function loadReviewSession(index) {
+  if (!state.review || index < 0 || index >= state.review.sessions.length) return;
+  await saveEdits();
+  const preview = await api(`/api/reviews/${state.review.id}/sessions/${index}`);
+  state.reviewIndex = index; state.messagePage = 0; state.preview = preview;
+  renderReview(); updateNavigation();
+}
+async function navigateReview(index) {
+  if (state.busy) return;
+  state.busy = true; lockControls(true); setError();
+  try { await loadReviewSession(index); } catch (error) { setError(error.message); }
+  finally { state.busy = false; lockControls(false); }
+}
+async function pollReview() {
+  while (true) {
+    state.review = { ...state.review, ...await api(`/api/reviews/${state.review.id}`) };
+    const job = state.review;
+    elements["progress"].textContent = job.status === "preparing" ? `Preparing ${job.processed} of ${job.total} sessions…` : job.status === "uploading" ? `Uploaded ${job.uploaded} of ${job.batches} batches. Keep this app open.` : "";
+    if (!["preparing", "uploading"].includes(job.status)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+}
 async function buildPreview() {
-  state.busy = true; setError(); invalidateConsent(); renderSelectionCount();
+  if (state.busy) return;
+  state.busy = true; setError(); invalidateConsent(); lockControls(true);
   elements["preview-button"].textContent = "Preparing preview…";
   try {
-    const response = await fetch("/api/donation-preview", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionIds: [...state.chosen], mode: state.mode, disabledKinds: [...state.disabledKinds], disabledMatches: [...state.disabledMatches] }),
-    });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || "Could not prepare the preview.");
-    state.preview = body;
-    renderReview();
-  } catch (error) { setError(error.message); }
-  finally { state.busy = false; elements["preview-button"].textContent = "Refresh preview"; renderSelectionCount(); updateDonateButton(); }
+    state.review = await api("/api/reviews", "POST", { sessionIds: [...state.chosen], mode: state.mode, disabledKinds: [...state.disabledKinds], disabledMatches: [...state.disabledMatches] });
+    state.dirty = false;
+    const job = await pollReview();
+    if (job.status !== "ready") throw new Error(job.error || "Could not prepare the review.");
+    await loadReviewSession(0);
+  } catch (error) { clearReview(); setError(error.message); }
+  finally { state.busy = false; elements["preview-button"].textContent = "Refresh preview"; lockControls(false); }
 }
 
 function redactionCheckbox(item, match = null) {
@@ -136,7 +185,7 @@ function renderConversations() {
     const count = document.createElement("b"); count.textContent = `${session.messages.length} messages`;
     title.append(strong, small); summary.append(title, count); details.append(summary);
     const messages = document.createElement("div"); messages.className = "messages";
-    session.messages.forEach((message) => {
+    session.messages.slice(state.messagePage * 40, (state.messagePage + 1) * 40).forEach((message) => {
       const parts = session.source === "codex" && message.role === "user" ? splitCodexContext(message.text) : { context: "", text: message.text };
       const editor = (part, label) => {
         const textarea = document.createElement("textarea"); textarea.value = parts[part]; textarea.setAttribute("aria-label", label);
@@ -144,7 +193,7 @@ function renderConversations() {
         textarea.setAttribute("aria-invalid", String(!parts[part].trim()));
         textarea.addEventListener("input", () => {
           parts[part] = textarea.value;
-          message.text = parts.context + parts.text;
+          message.text = parts.context + parts.text; state.dirty = true;
           textarea.setAttribute("aria-invalid", String(!textarea.value.trim()));
           invalidateConsent();
         });
@@ -163,6 +212,10 @@ function renderConversations() {
     });
     details.append(messages); elements["conversation-preview"].append(details);
   });
+  const total = state.preview.sessions[0].messages.length;
+  elements["message-page"].textContent = `Messages ${state.messagePage * 40 + 1}–${Math.min(total, (state.messagePage + 1) * 40)} of ${total}`;
+  elements["messages-prev"].disabled = state.messagePage === 0;
+  elements["messages-next"].disabled = (state.messagePage + 1) * 40 >= total;
 }
 
 function renderReview() {
@@ -171,11 +224,11 @@ function renderReview() {
   if (state.mode === "unredacted") {
     elements.warning.className = "banner danger";
     elements.warning.textContent = "No automatic redactions are active. Credentials, personal details, code, URLs, and paths may be present.";
-    elements["redaction-summary"].replaceChildren();
+    elements["redaction-summary"].textContent = `${state.review.sessions.length} sessions · ${state.review.messages.toLocaleString()} messages selected.`;
   } else {
     elements.warning.className = "banner";
-    elements.warning.textContent = `${state.preview.detectionCount} likely sensitive items removed locally`;
-    elements["redaction-summary"].textContent = `${state.preview.sessions.length} sessions · ${messages} messages`;
+    elements.warning.textContent = `${state.preview.detectionCount} likely sensitive items removed in this session`;
+    elements["redaction-summary"].textContent = `${state.review.sessions.length} sessions · ${state.review.messages.toLocaleString()} messages selected. Showing one session below.`;
     elements["redaction-summary"].className = "hint";
   }
   renderRedactions(); renderConversations(); renderMode(); updateDonateButton();
@@ -195,30 +248,41 @@ function applyCustomRedaction() {
     message.text = message.text.replace(expression, () => { count++; return replacement; });
   }
   elements["custom-status"].textContent = count ? `Applied ${count} replacement${count === 1 ? "" : "s"}. Refresh the preview to undo.` : "No matches found.";
-  if (count) { elements["custom-pattern"].value = ""; invalidateConsent(); renderConversations(); }
+  if (count) { state.dirty = true; elements["custom-pattern"].value = ""; invalidateConsent(); renderConversations(); }
 }
 
 async function donate() {
-  state.busy = true; setError(); updateDonateButton();
-  const includeTimestamps = elements.timestamps.checked;
-  const donation = {
-    donationRunId: state.donationRunId,
-    redactionMode: state.mode,
-    createdAt: new Date().toISOString(),
-    redactionSummary: { automatedDetections: state.preview.detectionCount },
-    sessions: state.preview.sessions.map((session) => ({ source: session.source, messages: session.messages.map((message) => ({ role: message.role, text: message.text, ...(includeTimestamps && message.timestamp ? { timestamp: message.timestamp } : {}) })) })),
-    consent: { researchDonation: true, ...(state.mode === "unredacted" ? { unredactedData: true } : {}), consentedAt: new Date().toISOString() },
-  };
+  if (state.busy) return;
+  state.busy = true; setError(); lockControls(true);
   try {
-    const response = await fetch("/api/donations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ donation }) });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || "Donation failed.");
-    state.acceptedId = body.donationId;
+    await saveEdits();
+    await api(`/api/reviews/${state.review.id}/donate`, "POST", { researchDonation: elements.consent.checked, unredactedData: elements["unredacted-ack"].checked, timestamps: elements.timestamps.checked });
+    const job = await pollReview();
+    if (job.status !== "complete") throw new Error(job.error || "Upload paused. Retry to continue.");
+    state.acceptedId = job.donationId;
+    if (state.acceptedId === "demo-not-transmitted") elements["success-description"].textContent = "Demo complete. No data was transmitted and no donation receipt was saved.";
     elements["donation-id"].textContent = state.acceptedId;
     elements["delete-donation"].classList.toggle("hidden", !/^[0-9a-f-]{36}$/.test(state.acceptedId));
     setHidden(elements.workspace, true); setHidden(elements.success, false);
   } catch (error) { setError(error.message); }
-  finally { state.busy = false; updateDonateButton(); }
+  finally {
+    state.busy = false;
+    if (state.review?.status === "paused") {
+      elements.donate.disabled = false; elements.donate.textContent = "Retry remaining upload";
+      elements["progress"].textContent = `${state.review.uploaded} of ${state.review.batches} batches accepted. Your deletion receipt also covers partial uploads.`;
+    } else lockControls(false);
+  }
+}
+
+async function closeApp() {
+  elements["close-app"].disabled = true;
+  try {
+    await api("/api/shutdown", "POST");
+    elements["close-status"].textContent = "Local server stopped. You can close this tab.";
+    elements["close-app"].textContent = "Server stopped";
+    elements["delete-donation"].disabled = true;
+    window.close();
+  } catch (error) { elements["close-status"].textContent = error.message; elements["close-app"].disabled = false; }
 }
 
 async function deleteAcceptedDonation() {
@@ -240,6 +304,14 @@ elements.mode.addEventListener("change", () => {
   state.mode = elements.mode.value; state.disabledKinds.clear(); state.disabledMatches.clear();
   clearReview(); invalidateConsent(); renderMode();
 });
+elements["sessions-prev"].addEventListener("click", () => { state.sessionPage--; renderSessions(); });
+elements["sessions-next"].addEventListener("click", () => { state.sessionPage++; renderSessions(); });
+elements["review-prev"].addEventListener("click", () => navigateReview(state.reviewIndex - 1));
+elements["review-next"].addEventListener("click", () => navigateReview(state.reviewIndex + 1));
+elements["review-position"].addEventListener("change", () => navigateReview(Number(elements["review-position"].value) - 1));
+elements["messages-prev"].addEventListener("click", () => { state.messagePage--; renderConversations(); });
+elements["messages-next"].addEventListener("click", () => { state.messagePage++; renderConversations(); });
+elements["close-app"].addEventListener("click", closeApp);
 elements["preview-button"].addEventListener("click", buildPreview);
 elements["apply-custom"].addEventListener("click", applyCustomRedaction);
 elements.timestamps.addEventListener("change", invalidateConsent);

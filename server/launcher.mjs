@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { Reviews, MAX_REVIEW_SESSIONS } from "./reviews.mjs";
 import http from "node:http";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -73,6 +74,9 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
   const selected = demo ? catalog.sessions : sessionsInWindow(catalog.sessions, { days, sources });
   const selectedIds = new Set(selected.map((session) => session.id));
   const pendingDeletionTokens = new Map();
+  const reviews = new Reviews(catalog);
+  let completedDonation = false;
+  let uploading = false;
 
   const server = http.createServer(async (request, response) => {
     const host = request.headers.host || `127.0.0.1:${port}`;
@@ -89,6 +93,49 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
         demo,
         privacy: "Nothing has left this machine.",
       });
+      if (request.method === "POST" && url.pathname === "/api/shutdown") {
+        if (!completedDonation || uploading) return json(response, 409, { error: "Finish the donation before closing the app." });
+        response.once("finish", () => { server.close(); server.closeIdleConnections(); });
+        return json(response, 200, { stopped: true });
+      }
+      if (request.method === "POST" && url.pathname === "/api/reviews") {
+        const body = await readBody(request, MAX_REVIEW_SESSIONS * 20 + 200_000);
+        if (!Array.isArray(body.sessionIds) || body.sessionIds.some((id) => !selectedIds.has(id))) return json(response, 400, { error: "Choose available sessions." });
+        if (!["standard", "custom", "unredacted"].includes(body.mode)) return json(response, 400, { error: "Choose a donation mode." });
+        const options = { mode: body.mode, unredacted: body.mode === "unredacted", disabledKinds: safeArray(body.disabledKinds, /^[a-z0-9-]{1,64}$/, 20), disabledMatches: safeArray(body.disabledMatches, /^[a-f0-9]{24}$/, 5_000) };
+        return json(response, 202, await reviews.create(body.sessionIds, options));
+      }
+      const reviewMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})(?:\/sessions\/(\d+)|\/(donate))?$/);
+      if (reviewMatch) {
+        const job = reviews.get(reviewMatch[1]);
+        if (request.method === "GET" && reviewMatch[2] !== undefined) return json(response, 200, await reviews.read(job, Number(reviewMatch[2])));
+        if (request.method === "PUT" && reviewMatch[2] !== undefined) {
+          const body = await readBody(request, 8_000_000);
+          await reviews.edit(job, Number(reviewMatch[2]), body.messages);
+          return json(response, 200, { saved: true });
+        }
+        if (request.method === "GET" && !reviewMatch[3]) return json(response, 200, reviews.summary(job));
+        if (request.method === "POST" && reviewMatch[3] === "donate") {
+          const body = await readBody(request);
+          if (!["ready", "paused"].includes(job.status) || uploading) return json(response, 409, { error: "The review is not ready for upload." });
+          if (body.researchDonation !== true || (job.options.unredacted && body.unredactedData !== true)) return json(response, 400, { error: "Consent is required." });
+          if (!job.consent) job.consent = { researchDonation: true, ...(job.options.unredacted ? { unredactedData: true } : {}), timestamps: body.timestamps === true, consentedAt: new Date().toISOString() };
+          if (!job.token) job.token = createDeletionToken();
+          // Save the group deletion credential BEFORE the first request, including uncertain responses.
+          if (!demo) saveDonationReceipt({ donationId: job.id, deletionToken: job.token, donationRunId: job.id, group: true, sourceTypes: [...new Set(job.sessions.map((s) => s.source))], sessionCount: job.sessions.length });
+          job.status = "uploading"; job.error = ""; uploading = true;
+          job.task = (async () => {
+            for (; job.uploaded < job.batches.length; job.uploaded++) {
+              const donation = await reviews.donation(job, job.batches[job.uploaded], job.consent, APP_VERSION, job.uploaded);
+              if (!demo) await submitDonation(donation, job.token);
+            }
+            await import("node:fs/promises").then(({ rm }) => rm(job.folder, { recursive: true, force: true })).catch(() => {});
+            uploading = false; completedDonation = true; job.donationId = demo ? "demo-not-transmitted" : job.id; job.status = "complete";
+          })().catch((error) => { job.status = "paused"; job.error = error.message; }).finally(() => { uploading = false; });
+          return json(response, 202, reviews.summary(job));
+        }
+        return json(response, 405, { error: "Method not allowed." });
+      }
       if (request.method === "POST" && url.pathname === "/api/donation-preview") {
         const body = await readBody(request);
         const sessionIds = safeArray(body.sessionIds, /^[a-f0-9]{16}$/, 250).filter((id) => selectedIds.has(id));
@@ -102,7 +149,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
         const body = await readBody(request, MAX_DONATION_BYTES + 1_000_000);
         const donation = sanitizeDonation({ ...body.donation, collector: { name: "share-with-susan-calvin", version: APP_VERSION } });
         if (!donation) return json(response, 400, { error: "The reviewed donation is invalid or too large." });
-        if (demo) return json(response, 201, { accepted: true, donationId: "demo-not-transmitted", demo: true });
+        if (demo) { completedDonation = true; return json(response, 201, { accepted: true, donationId: "demo-not-transmitted", demo: true }); }
         const deletionToken = pendingDeletionTokens.get(donation.donationRunId) || createDeletionToken();
         pendingDeletionTokens.set(donation.donationRunId, deletionToken);
         const result = await submitDonation(donation, deletionToken);
@@ -114,13 +161,14 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
           sessionCount: donation.redactionSummary.sessions,
         });
         pendingDeletionTokens.delete(donation.donationRunId);
+        completedDonation = true;
         return json(response, 201, { accepted: true, donationId: receipt.donationId, encrypted: true });
       }
       const donationMatch = url.pathname.match(/^\/api\/donations\/([0-9a-f-]{36})$/);
       if (request.method === "DELETE" && donationMatch) {
         const receipt = loadDonationReceipt(donationMatch[1]);
         if (!receipt) return json(response, 404, { error: "Local deletion receipt not found." });
-        await deleteDonation(receipt.donationId, receipt.deletionToken);
+        await deleteDonation(receipt.donationId, receipt.deletionToken, { group: receipt.group === true });
         deleteDonationReceipt(receipt.donationId);
         return json(response, 200, { deleted: true });
       }
@@ -136,6 +184,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
     }
   });
 
+  server.once("close", () => { void reviews.close(); });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);

@@ -1,3 +1,4 @@
+import { enqueueNotification, deliverNotifications, reconcileNotifications } from "./notifications.mjs";
 import { MAX_ENCRYPTED_BYTES, sanitizeEncryptedEnvelope } from "../server/encrypted-donation-schema.mjs";
 
 function json(body, status = 200) {
@@ -49,12 +50,11 @@ function deletionToken(request) {
   return /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
 }
 
-async function acceptDonation(request, env) {
+async function acceptDonation(request, env, context) {
   if (!env.DONATION_METADATA || !env.DONATIONS) return json({ error: "Donation storage is not configured." }, 503);
   const token = deletionToken(request);
   if (!token) return json({ error: "A valid deletion token is required." }, 400);
   const networkId = request.headers.get("cf-connecting-ip") || "unknown";
-  if (!await rateLimit(env, `donation:${networkId}`)) return json({ error: "Too many donation requests. Try again shortly." }, 429);
   const raw = await readLimitedBody(request, MAX_ENCRYPTED_BYTES);
   if (raw === null) return json({ error: "The encrypted donation is too large." }, 413);
   let body;
@@ -62,10 +62,29 @@ async function acceptDonation(request, env) {
   const donation = sanitizeEncryptedEnvelope(body?.encryptedDonation);
   if (!donation) return json({ error: "Invalid encrypted donation." }, 400);
   const tokenHash = await sha256Hex(token);
-  const existing = await env.DONATION_METADATA.prepare("SELECT id, deletion_token_hash FROM susan_calvin_donations WHERE donation_run_id = ?").bind(donation.metadata.donationRunId).first();
-  if (existing) return existing.deletion_token_hash === tokenHash
-    ? json({ accepted: true, donation_id: existing.id, encrypted: true, duplicate: true }, 200)
-    : json({ error: "That donation run ID has already been used." }, 409);
+  const existing = await env.DONATION_METADATA.prepare("SELECT id, deletion_token_hash, group_id, batch_index FROM susan_calvin_donations WHERE donation_run_id = ?").bind(donation.metadata.donationRunId).first();
+  if (existing) {
+    if (existing.deletion_token_hash !== tokenHash) return json({ error: "That donation run ID has already been used." }, 409);
+    if ((existing.group_id || null) !== (donation.metadata.groupId || null) || (existing.group_id && existing.batch_index !== donation.metadata.batchIndex)) return json({ error: "That donation run ID belongs to another batch." }, 409);
+    if (existing.group_id) {
+      const group = await env.DONATION_METADATA.prepare("SELECT * FROM susan_calvin_donation_groups WHERE id = ?").bind(existing.group_id).first();
+      if (group?.state !== "active") return json({ error: "Donation group is closed." }, 409);
+    }
+    await enqueueNotification(env, donation.metadata, existing.id);
+    context?.waitUntil(deliverNotifications(env));
+    return json({ accepted: true, donation_id: existing.id, encrypted: true, duplicate: true });
+  }
+  const metadata = donation.metadata;
+  if (metadata.groupId) {
+    let group = await env.DONATION_METADATA.prepare("SELECT * FROM susan_calvin_donation_groups WHERE id = ?").bind(metadata.groupId).first();
+    if (!group) {
+      if (!await rateLimit(env, `donation:${networkId}`)) return json({ error: "Too many donation requests. Try again shortly." }, 429);
+      await env.DONATION_METADATA.prepare("INSERT OR IGNORE INTO susan_calvin_donation_groups (id, deletion_token_hash, batch_count, redaction_mode) VALUES (?, ?, ?, ?)").bind(metadata.groupId, tokenHash, metadata.batchCount, metadata.redactionMode).run();
+      group = await env.DONATION_METADATA.prepare("SELECT * FROM susan_calvin_donation_groups WHERE id = ?").bind(metadata.groupId).first();
+    }
+    if (group.deletion_token_hash !== tokenHash || group.batch_count !== metadata.batchCount || group.redaction_mode !== metadata.redactionMode || group.state !== "active") return json({ error: "Donation batch does not match its group." }, 409);
+    if (env.BATCH_RATE_LIMITER && !(await env.BATCH_RATE_LIMITER.limit({ key: metadata.groupId })).success) return json({ error: "Upload paused briefly. Retrying is safe." }, 429);
+  } else if (!await rateLimit(env, `donation:${networkId}`)) return json({ error: "Too many donation requests. Try again shortly." }, 429);
 
   const id = crypto.randomUUID();
   const objectKey = `donations/${donation.metadata.createdAt.slice(0, 7)}/${id}.json`;
@@ -78,21 +97,28 @@ async function acceptDonation(request, env) {
     });
   } catch { return json({ error: "Encrypted donation storage is temporarily unavailable." }, 503); }
   try {
-    await env.DONATION_METADATA.prepare(`INSERT INTO susan_calvin_donations
+    const inserted = await env.DONATION_METADATA.prepare(`INSERT INTO susan_calvin_donations
       (id, donation_run_id, deletion_token_hash, object_key, encryption_key_id, encryption_algorithm, ciphertext_sha256,
        object_bytes, collector_version, source_types, redaction_mode, unredacted_data, automated_detections,
-       session_count, message_count, consent_version, consented_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+       session_count, message_count, consent_version, consented_at, created_at, group_id, batch_index)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE ? IS NULL OR EXISTS (SELECT 1 FROM susan_calvin_donation_groups WHERE id = ? AND state = 'active')`).bind(
         id, donation.metadata.donationRunId, tokenHash, objectKey, donation.encryption.keyId, donation.encryption.algorithm,
         ciphertextSha256, new TextEncoder().encode(serialized).byteLength, donation.metadata.collectorVersion,
         JSON.stringify(donation.metadata.sourceTypes), donation.metadata.redactionMode, donation.metadata.unredactedData ? 1 : 0,
         donation.metadata.automatedDetections, donation.metadata.sessions, donation.metadata.messages,
-        donation.metadata.consentVersion, donation.metadata.consentedAt, donation.metadata.createdAt,
+        donation.metadata.consentVersion, donation.metadata.consentedAt, donation.metadata.createdAt, donation.metadata.groupId || null, donation.metadata.batchIndex ?? null, donation.metadata.groupId || null, donation.metadata.groupId || null,
       ).run();
+    if (inserted.meta?.changes === 0) {
+      await env.DONATIONS.delete(objectKey);
+      return json({ error: "Donation group is closed." }, 409);
+    }
   } catch {
     await env.DONATIONS.delete(objectKey).catch(() => {});
     return json({ error: "Donation metadata storage is temporarily unavailable." }, 503);
   }
+  await enqueueNotification(env, donation.metadata, id);
+  context?.waitUntil(deliverNotifications(env));
   return json({ accepted: true, donation_id: id, encrypted: true }, 201);
 }
 
@@ -110,13 +136,32 @@ async function removeDonation(request, env, id) {
   return json({ deleted: true });
 }
 
-export async function handleRequest(request, env) {
+async function removeGroup(request, env, id) {
+  const token = deletionToken(request);
+  if (!token) return json({ error: "A valid deletion token is required." }, 400);
+  const group = await env.DONATION_METADATA.prepare("SELECT * FROM susan_calvin_donation_groups WHERE id = ? AND deletion_token_hash = ?").bind(id, await sha256Hex(token)).first();
+  if (!group) return json({ error: "Donation not found." }, 404);
+  await env.DONATION_METADATA.prepare("UPDATE susan_calvin_donation_groups SET state = 'deleting' WHERE id = ?").bind(id).run();
+  const { results } = await env.DONATION_METADATA.prepare("SELECT id, object_key FROM susan_calvin_donations WHERE group_id = ? LIMIT 25").bind(id).all();
+  for (const row of results) {
+    await env.DONATIONS.delete(row.object_key);
+    await env.DONATION_METADATA.prepare("DELETE FROM susan_calvin_donations WHERE id = ?").bind(row.id).run();
+  }
+  await env.DONATION_METADATA.prepare("DELETE FROM susan_calvin_notifications WHERE id = ?").bind(id).run();
+  return json({ deleted: results.length < 25, remaining: results.length === 25 });
+}
+
+export async function handleRequest(request, env, context) {
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") return json({ service: "susan-calvin-donations", healthy: true });
   if (url.pathname === "/v1/donations") {
     if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
     if (!validProtocol(request)) return json({ error: "Encrypted donation protocol 1 is required." }, 426);
-    return acceptDonation(request, env);
+    try { return await acceptDonation(request, env, context); } catch { return json({ error: "Donation service is temporarily unavailable. Retrying is safe." }, 503); }
+  }
+  const groupMatch = url.pathname.match(/^\/v1\/donation-groups\/([0-9a-f-]{36})$/);
+  if (groupMatch && request.method === "DELETE" && validProtocol(request)) {
+    try { return await removeGroup(request, env, groupMatch[1]); } catch { return json({ error: "Deletion interrupted. Retrying is safe." }, 503); }
   }
   const match = url.pathname.match(/^\/v1\/donations\/([0-9a-f-]{36})$/);
   if (match) {
@@ -127,5 +172,5 @@ export async function handleRequest(request, env) {
   return json({ error: "Not found." }, 404);
 }
 
-export default { fetch: handleRequest };
+export default { fetch: handleRequest, scheduled(_event, env, context) { context.waitUntil((async () => { await reconcileNotifications(env); await deliverNotifications(env); })()); } };
 

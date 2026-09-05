@@ -28,7 +28,7 @@ test("the receiver stores ciphertext separately from minimal metadata", async ()
   const database = {
     prepare(sql) { return { bind(...values) { return {
       async first() { return null; },
-      async run() { inserted = { sql, values }; return { success: true }; },
+      async run() { if (sql.startsWith("INSERT INTO susan_calvin_donations")) inserted = { sql, values }; return { success: true }; },
     }; } }; },
   };
   const bucket = { async put(key, value) { storedObject = { key, value }; }, async delete() {} };
@@ -52,7 +52,7 @@ test("retries are idempotent when they use the same local deletion token", async
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   const tokenHash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   let put = false;
-  const database = { prepare() { return { bind() { return { async first() { return { id: "44444444-4444-4444-8444-444444444444", deletion_token_hash: tokenHash }; } }; } }; } };
+  const database = { prepare() { return { bind() { return { async run() { return { success: true }; }, async first() { return { id: "44444444-4444-4444-8444-444444444444", deletion_token_hash: tokenHash }; } }; } }; } };
   const response = await handleRequest(new Request("https://donate.example/v1/donations", {
     method: "POST",
     headers: { "content-type": "application/json", "x-susan-calvin-protocol": "1", "x-susan-calvin-deletion-token": token },

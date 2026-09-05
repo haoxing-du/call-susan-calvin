@@ -5,7 +5,10 @@
   "compatibility_date": "2026-08-31",
   "workers_dev": true,
   "routes": [
-    { "pattern": "donate.susancalvin.org", "custom_domain": true }
+    {
+      "pattern": "donate.susancalvin.org",
+      "custom_domain": true
+    }
   ],
   "d1_databases": [
     {
@@ -25,11 +28,37 @@
     {
       "name": "DONATION_RATE_LIMITER",
       "namespace_id": "1004",
-      "simple": { "limit": 5, "period": 60 }
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
+    },
+    {
+      "name": "BATCH_RATE_LIMITER",
+      "namespace_id": "1005",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
     }
   ],
   "observability": {
     "enabled": true,
-    "logs": { "enabled": true, "head_sampling_rate": 0.1 }
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 0.1
+    }
+  },
+  "services": [
+    {
+      "binding": "ZULIP_NOTIFIER",
+      "service": "agent-behavior-wrapped-judge",
+      "entrypoint": "DonationNotifications"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
   }
 }

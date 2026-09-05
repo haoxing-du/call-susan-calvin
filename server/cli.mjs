@@ -27,7 +27,7 @@ async function run() {
     const id = args[1];
     const receipt = loadDonationReceipt(id);
     if (!receipt) throw new Error("That local donation receipt was not found.");
-    await deleteDonation(receipt.donationId, receipt.deletionToken);
+    await deleteDonation(receipt.donationId, receipt.deletionToken, { group: receipt.group === true });
     deleteDonationReceipt(receipt.donationId);
     console.log(`Deleted donation ${receipt.donationId}.`);
     return;
@@ -51,7 +51,7 @@ async function run() {
   console.log(`Found ${local.sessionCount} eligible sessions. Nothing has left this machine.`);
   console.log(`\nReview them at ${local.url}\n`);
   if (!args.includes("--no-open")) openExternalUrl(local.url);
-  const stop = () => local.server.close(() => process.exit(0));
+  const stop = () => { local.server.close(); local.server.closeIdleConnections(); };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 }

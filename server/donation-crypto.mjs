@@ -17,7 +17,7 @@ YKX6TcNe6TOHuCTHM7LDmTPGNZdMi9cXXBUzohvTxm7O8qduIekFg4emxIiduVY2
 
 export function encryptDonation(value, publicKey = DONATION_PUBLIC_KEY) {
   const byteLength = donationByteLength(value);
-  if (byteLength !== null && byteLength > MAX_DONATION_BYTES) throw new Error("The reviewed donation is larger than 20 MB. Select fewer sessions or exclude large messages.");
+  if (byteLength !== null && byteLength > MAX_DONATION_BYTES) throw new Error("The reviewed donation is larger than 20 MB. Select fewer sessions.");
   const donation = sanitizeDonation(value);
   if (!donation) throw new Error("The reviewed donation does not match the Susan Calvin donation schema.");
   const compressed = gzipSync(Buffer.from(JSON.stringify(donation)));
@@ -29,6 +29,7 @@ export function encryptDonation(value, publicKey = DONATION_PUBLIC_KEY) {
     encryption: { algorithm: ENCRYPTION_ALGORITHM, keyId: ENCRYPTION_KEY_ID },
     metadata: {
       donationRunId: donation.donationRunId,
+      ...(donation.group ? { groupId: donation.group.id, batchIndex: donation.group.index, batchCount: donation.group.count } : {}),
       collectorVersion: donation.collector.version,
       sourceTypes: donation.sourceTypes,
       redactionMode: donation.redactionMode,

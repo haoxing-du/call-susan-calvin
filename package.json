@@ -1,6 +1,6 @@
 {
   "name": "share-with-susan-calvin",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Review and securely donate your local AI agent sessions to the Susan Calvin Project.",
   "license": "Apache-2.0",
   "type": "module",
@@ -52,6 +52,18 @@
     "db:migrate:remote": "npx --yes wrangler@4.86.0 d1 migrations apply susan-calvin-donation-metadata --remote",
     "prepack": "npm run check",
     "prepublishOnly": "npm run check",
-    "postpublish": "npm run worker:deploy"
+    "postpublish": "npm run worker:deploy",
+    "test:stress": "node scripts/stress-donation.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "miniflare": "4.20260426.0"
+  },
+  "overrides": {
+    "miniflare": {
+      "undici": "7.29.0",
+      "ws": "8.21.0",
+      "sharp": "0.35.3"
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { enqueueNotification, deliverNotifications, reconcileNotifications } from "./notifications.mjs";
-import { MAX_ENCRYPTED_BYTES, sanitizeEncryptedEnvelope } from "../server/encrypted-donation-schema.mjs";
+import { MAX_ENCRYPTED_BYTES, MAX_COMPRESSED_BYTES, sanitizeEncryptedEnvelope, sanitizeEncryptedHeader, encryptedStoragePrefix } from "../server/encrypted-donation-schema.mjs";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -42,7 +42,7 @@ async function rateLimit(env, key) {
 }
 
 function validProtocol(request) {
-  return request.headers.get("x-susan-calvin-protocol") === "1";
+  return ["1", "2"].includes(request.headers.get("x-susan-calvin-protocol"));
 }
 
 function deletionToken(request) {
@@ -55,11 +55,22 @@ async function acceptDonation(request, env, context) {
   const token = deletionToken(request);
   if (!token) return json({ error: "A valid deletion token is required." }, 400);
   const networkId = request.headers.get("cf-connecting-ip") || "unknown";
-  const raw = await readLimitedBody(request, MAX_ENCRYPTED_BYTES);
-  if (raw === null) return json({ error: "The encrypted donation is too large." }, 413);
-  let body;
-  try { body = JSON.parse(raw); } catch { return json({ error: "Invalid JSON." }, 400); }
-  const donation = sanitizeEncryptedEnvelope(body?.encryptedDonation);
+  const streamed = request.headers.get("x-susan-calvin-protocol") === "2";
+  let donation, ciphertextBytes = 0, objectHash = null;
+  if (streamed) {
+    const encoded = request.headers.get("x-susan-calvin-envelope") || "";
+    if (encoded.length > 8_000) return json({ error: "Encrypted header is too large." }, 413);
+    try { donation = sanitizeEncryptedHeader(JSON.parse(encoded)); } catch { /* Rejected below. */ }
+    ciphertextBytes = Number(request.headers.get("x-susan-calvin-ciphertext-bytes"));
+    objectHash = request.headers.get("x-susan-calvin-object-sha256") || "";
+    if (!request.body || !Number.isInteger(ciphertextBytes) || ciphertextBytes < 1 || ciphertextBytes > MAX_COMPRESSED_BYTES || !/^[a-f0-9]{64}$/.test(objectHash)) return json({ error: "Invalid encrypted stream size or checksum." }, 400);
+  } else {
+    const raw = await readLimitedBody(request, MAX_ENCRYPTED_BYTES);
+    if (raw === null) return json({ error: "The encrypted donation is too large." }, 413);
+    let body;
+    try { body = JSON.parse(raw); } catch { return json({ error: "Invalid JSON." }, 400); }
+    donation = sanitizeEncryptedEnvelope(body?.encryptedDonation);
+  }
   if (!donation) return json({ error: "Invalid encrypted donation." }, 400);
   const tokenHash = await sha256Hex(token);
   const existing = await env.DONATION_METADATA.prepare("SELECT id, deletion_token_hash, group_id, batch_index FROM susan_calvin_donations WHERE donation_run_id = ?").bind(donation.metadata.donationRunId).first();
@@ -87,27 +98,42 @@ async function acceptDonation(request, env, context) {
   } else if (!await rateLimit(env, `donation:${networkId}`)) return json({ error: "Too many donation requests. Try again shortly." }, 429);
 
   const id = crypto.randomUUID();
-  const objectKey = `donations/${donation.metadata.createdAt.slice(0, 7)}/${id}.json`;
-  const serialized = JSON.stringify(donation);
-  const ciphertextSha256 = await sha256Hex(donation.ciphertext);
+  const objectKey = `donations/${donation.metadata.createdAt.slice(0, 7)}/${id}.${streamed ? "bin" : "json"}`;
+  const prefix = streamed ? encryptedStoragePrefix(donation) : null;
+  const serialized = streamed ? null : JSON.stringify(donation);
+  const objectBytes = streamed ? prefix.length + ciphertextBytes : new TextEncoder().encode(serialized).byteLength;
+  const ciphertextSha256 = streamed ? "" : await sha256Hex(donation.ciphertext);
   try {
-    await env.DONATIONS.put(objectKey, serialized, {
-      httpMetadata: { contentType: "application/json" },
+    const options = {
+      httpMetadata: { contentType: streamed ? "application/octet-stream" : "application/json" },
       customMetadata: { donationId: id, encryptionKeyId: donation.encryption.keyId, collector: "share-with-susan-calvin" },
-    });
-  } catch { return json({ error: "Encrypted donation storage is temporarily unavailable." }, 503); }
+      ...(streamed ? { sha256: objectHash } : {}),
+    };
+    if (streamed) {
+      // The runtime pipes ciphertext natively. R2 checks the checksum and fixed length;
+      // no transcript-sized buffer, JSON parse, regex or hash runs in the Worker.
+      const stream = new FixedLengthStream(objectBytes);
+      const transfer = (async () => {
+        const writer = stream.writable.getWriter();
+        await writer.write(prefix);
+        writer.releaseLock();
+        await request.body.pipeTo(stream.writable);
+      })();
+      await Promise.all([env.DONATIONS.put(objectKey, stream.readable, options), transfer]);
+    } else await env.DONATIONS.put(objectKey, serialized, options);
+  } catch { return json({ error: "Encrypted storage rejected the upload or is temporarily unavailable. Retry the same batch." }, 503); }
   try {
     const inserted = await env.DONATION_METADATA.prepare(`INSERT INTO susan_calvin_donations
       (id, donation_run_id, deletion_token_hash, object_key, encryption_key_id, encryption_algorithm, ciphertext_sha256,
        object_bytes, collector_version, source_types, redaction_mode, unredacted_data, automated_detections,
-       session_count, message_count, consent_version, consented_at, created_at, group_id, batch_index)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       session_count, message_count, consent_version, consented_at, created_at, group_id, batch_index, object_sha256)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE ? IS NULL OR EXISTS (SELECT 1 FROM susan_calvin_donation_groups WHERE id = ? AND state = 'active')`).bind(
         id, donation.metadata.donationRunId, tokenHash, objectKey, donation.encryption.keyId, donation.encryption.algorithm,
-        ciphertextSha256, new TextEncoder().encode(serialized).byteLength, donation.metadata.collectorVersion,
+        ciphertextSha256, objectBytes, donation.metadata.collectorVersion,
         JSON.stringify(donation.metadata.sourceTypes), donation.metadata.redactionMode, donation.metadata.unredactedData ? 1 : 0,
         donation.metadata.automatedDetections, donation.metadata.sessions, donation.metadata.messages,
-        donation.metadata.consentVersion, donation.metadata.consentedAt, donation.metadata.createdAt, donation.metadata.groupId || null, donation.metadata.batchIndex ?? null, donation.metadata.groupId || null, donation.metadata.groupId || null,
+        donation.metadata.consentVersion, donation.metadata.consentedAt, donation.metadata.createdAt, donation.metadata.groupId || null, donation.metadata.batchIndex ?? null, objectHash, donation.metadata.groupId || null, donation.metadata.groupId || null,
       ).run();
     if (inserted.meta?.changes === 0) {
       await env.DONATIONS.delete(objectKey);
@@ -156,7 +182,7 @@ export async function handleRequest(request, env, context) {
   if (request.method === "GET" && url.pathname === "/health") return json({ service: "susan-calvin-donations", healthy: true });
   if (url.pathname === "/v1/donations") {
     if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
-    if (!validProtocol(request)) return json({ error: "Encrypted donation protocol 1 is required." }, 426);
+    if (!validProtocol(request)) return json({ error: "Encrypted donation protocol 1 or 2 is required." }, 426);
     try { return await acceptDonation(request, env, context); } catch { return json({ error: "Donation service is temporarily unavailable. Retrying is safe." }, 503); }
   }
   const groupMatch = url.pathname.match(/^\/v1\/donation-groups\/([0-9a-f-]{36})$/);

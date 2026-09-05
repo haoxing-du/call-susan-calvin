@@ -123,11 +123,11 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
           if (!job.token) job.token = createDeletionToken();
           // Save the group deletion credential BEFORE the first request, including uncertain responses.
           if (!demo) saveDonationReceipt({ donationId: job.id, deletionToken: job.token, donationRunId: job.id, group: true, sourceTypes: [...new Set(job.sessions.map((s) => s.source))], sessionCount: job.sessions.length });
-          job.status = "uploading"; job.error = ""; uploading = true;
+          job.status = "uploading"; job.error = ""; uploading = true; job.uploadController = new AbortController();
           job.task = (async () => {
             for (; job.uploaded < job.batches.length; job.uploaded++) {
               const donation = await reviews.donation(job, job.batches[job.uploaded], job.consent, APP_VERSION, job.uploaded);
-              if (!demo) await submitDonation(donation, job.token);
+              if (!demo) await submitDonation(donation, job.token, { signal: job.uploadController.signal });
             }
             await import("node:fs/promises").then(({ rm }) => rm(job.folder, { recursive: true, force: true })).catch(() => {});
             uploading = false; completedDonation = true; job.donationId = demo ? "demo-not-transmitted" : job.id; job.status = "complete";
@@ -184,7 +184,10 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
     }
   });
 
-  server.once("close", () => { void reviews.close(); });
+  server.once("close", () => {
+    for (const job of reviews.jobs.values()) job.uploadController?.abort();
+    void reviews.close();
+  });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);

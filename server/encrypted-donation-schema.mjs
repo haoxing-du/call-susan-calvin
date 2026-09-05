@@ -42,3 +42,12 @@ export function sanitizeEncryptedEnvelope(value) {
   if (metadata.groupId !== undefined && (!/^[0-9a-f-]{36}$/.test(metadata.groupId) || !boundedInteger(metadata.batchCount, 100_000, 1) || !boundedInteger(metadata.batchIndex, metadata.batchCount - 1))) return null;
   return value;
 }
+
+export const STREAM_MAGIC = "susan-calvin-encrypted-stream-v2";
+export function sanitizeEncryptedHeader(value) {
+  if (!exactKeys(value, ["format", "encryption", "metadata"])) return null;
+  return sanitizeEncryptedEnvelope({ ...value, ciphertext: "A" }) ? value : null;
+}
+export function encryptedStoragePrefix(header) {
+  return new TextEncoder().encode(`${STREAM_MAGIC}\n${JSON.stringify(header)}\n`);
+}

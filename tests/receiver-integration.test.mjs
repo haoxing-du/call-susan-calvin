@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
+import { decryptDonation, parseStoredDonation } from "../server/donation-crypto.mjs";
 import { createReceiver } from "./helpers/receiver.mjs";
 import { submitDonation, deleteDonation } from "../server/donation-client.mjs";
 import { deliverNotifications, reconcileNotifications } from "../worker/notifications.mjs";
@@ -14,7 +15,8 @@ test("real Worker, D1 and R2 accept a group once, notify once, and delete the en
   const { mf, db, bucket } = await createReceiver();
   try {
     const id = crypto.randomUUID(), token = crypto.randomBytes(32).toString("base64url");
-    const options = { endpoint: "https://test/v1/donations", fetchImpl: (url, init) => mf.dispatchFetch(url, init), sleep: async () => {} };
+    const keys = crypto.generateKeyPairSync("rsa", { modulusLength: 3072 });
+    const options = { publicKey: keys.publicKey, endpoint: "https://test/v1/donations", fetchImpl: (url, init) => mf.dispatchFetch(url, init), sleep: async () => {} };
     const make = (index) => ({ donationRunId: `${id.slice(0, -1)}${index}`, group: { id, index, count: 3 }, redactionMode: "standard", sessions: [{ source: "codex", messages: [{ role: "user", text: `Synthetic batch ${index}` }] }], consent: { researchDonation: true } });
     const first = await submitDonation(make(0), token, options);
     assert.equal((await submitDonation(make(0), token, options)).donation_id, first.donation_id);
@@ -26,7 +28,20 @@ test("real Worker, D1 and R2 accept a group once, notify once, and delete the en
     await submitDonation(make(2), token, options);
     const row = await db.prepare("SELECT payload FROM test_deliveries").first();
     assert.deepEqual(JSON.parse(row.payload), { sessions: 3, messages: 3, automatedDetections: 0, redactionMode: "standard" });
-    assert.equal((await bucket.list()).objects.length, 3);
+    const objects = (await bucket.list()).objects;
+    assert.equal(objects.length, 3);
+    for (const object of objects) {
+      assert.match(object.key, /\.bin$/);
+      const envelope = parseStoredDonation(await (await bucket.get(object.key)).arrayBuffer());
+      assert.match(decryptDonation(envelope, keys.privateKey).sessions[0].messages[0].text, /Synthetic batch/);
+    }
+    await assert.rejects(submitDonation({ ...make(0), donationRunId: crypto.randomUUID(), group: { id: crypto.randomUUID(), index: 0, count: 1 } }, token, {
+      ...options, attempts: 1, fetchImpl: (url, init) => {
+        const damaged = Buffer.from(init.body); damaged[0] ^= 1;
+        return mf.dispatchFetch(url, { ...init, body: damaged });
+      },
+    }), /storage rejected/);
+    assert.equal((await bucket.list()).objects.length, 3, "checksum failure must not leave an object");
     await db.prepare("DELETE FROM susan_calvin_notifications WHERE id = ?").bind(id).run();
     await reconcileNotifications({ DONATION_METADATA: db });
     const recovered = await db.prepare("SELECT payload FROM susan_calvin_notifications WHERE id = ?").bind(id).first();

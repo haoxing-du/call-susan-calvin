@@ -55,7 +55,7 @@ The picker displays 30 sessions per page, and review displays one session and up
 
 Up to 100,000 sessions can be reviewed. Uploads are packed into batches of roughly 4 MB before compression, with complete sessions kept together. A single session may contain up to 7 MB of JSON and 50,000 messages; oversized sessions are reported before upload rather than truncated. The total donation can exceed the old 250-session and 20 MB limits.
 
-The app uploads batches sequentially, displays progress, and retries temporary network errors and rate limits. If retries are exhausted, **Retry remaining upload** continues the same frozen snapshot while the server remains open. Reloading or restarting does not resume an upload; the saved group receipt still allows every accepted batch to be deleted with `share-with-susan-calvin delete <donation-id>`. Receipts are written **before** transmission, so they also cover partial uploads and lost acknowledgements.
+The app uploads ciphertext as a binary stream, displays progress, and retries temporary network errors and rate limits with up to eight attempts and increasing delays. If retries are exhausted, **Retry remaining upload** continues the same frozen snapshot while the server remains open. Reloading or restarting does not resume an upload; the saved group receipt still allows every accepted batch to be deleted with `share-with-susan-calvin delete <donation-id>`. Receipts are written **before** transmission, so they also cover partial uploads and lost acknowledgements.
 
 ## Security model
 

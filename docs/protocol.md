@@ -62,3 +62,11 @@ The local client saves the group deletion credential before its first upload, en
 `DELETE /v1/donation-groups/:id` authenticates the shared token, marks the group closed to uploads, and removes up to 25 objects per call. Repeat while `remaining` is true. Requests are idempotent. Minimal group tombstones prevent delayed retries from resurrecting deleted donations.
 
 A D1 outbox queues one aggregate alert for a completed group (or one legacy donation). Atomic claims avoid concurrent deliveries. `waitUntil` attempts immediate delivery through the internal Zulip service; the scheduled handler retries pending alerts every five minutes. Zulip delivery is at least once, since its acknowledgement and the D1 update cannot be committed atomically.
+
+## Streamed transport (protocol 2)
+
+The default collector uses `x-susan-calvin-protocol: 2`. Encryption and authenticated metadata remain identical to protocol 1. The JSON envelope header (format, encryption parameters, metadata) travels in `x-susan-calvin-envelope`; the request body contains raw binary ciphertext. `x-susan-calvin-ciphertext-bytes` declares its bounded length, and `x-susan-calvin-object-sha256` is the SHA-256 digest of the complete storage representation described below.
+
+The receiver validates only the small header. It prepends the storage prefix and pipes the ciphertext through a `FixedLengthStream` directly into R2, which verifies the SHA-256 checksum. This avoids parsing, stringifying, and hashing megabytes inside the Worker's CPU budget. Incorrect lengths or checksums do not create a donation record.
+
+The `.bin` storage representation is the ASCII line `susan-calvin-encrypted-stream-v2`, a newline, the JSON header, another newline, then binary ciphertext. `parseStoredDonation` and `npm run research:decrypt` support this representation and legacy `.json` objects. D1's `object_sha256` holds the R2-verified whole-object checksum; the legacy `ciphertext_sha256` field is empty for streamed objects.

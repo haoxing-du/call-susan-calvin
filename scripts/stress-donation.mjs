@@ -10,7 +10,7 @@ import { saveDonationReceipt, deleteDonationReceipt } from "../server/store.mjs"
 import { discoverAllSessions } from "../server/discovery.mjs";
 import { Reviews } from "../server/reviews.mjs";
 import { submitDonation, deleteDonation } from "../server/donation-client.mjs";
-import { decryptDonation } from "../server/donation-crypto.mjs";
+import { decryptDonation, parseStoredDonation } from "../server/donation-crypto.mjs";
 import { sanitizeDonation } from "../server/donation-schema.mjs";
 import { createReceiver } from "../tests/helpers/receiver.mjs";
 
@@ -71,15 +71,19 @@ try {
     const donation = await reviews.donation(job, job.batches[i], consent, "0.2.0", i);
     checksum.update(JSON.stringify(sanitizeDonation(donation).sessions));
     await submitDonation(donation, token, options);
-    if (production) await submitDonation({ ...donation, collector: { version: "0.2.0-synthetic" } }, token);
-    if (i && i % 20 === 0) console.log(`Accepted ${i}/${job.batches.length} encrypted batches`);
+    if (production) await submitDonation({ ...donation, collector: { version: "0.2.0-synthetic" } }, token, { fetchImpl: async (url, init) => {
+      const response = await fetch(url, init);
+      if (!response.ok) console.log(JSON.stringify({ productionBatch: i, status: response.status, contentType: response.headers.get("content-type"), mitigated: response.headers.get("cf-mitigated") }));
+      return response;
+    } });
+    if (i && i % (production ? 10 : 20) === 0) console.log(`Accepted ${i}/${job.batches.length} encrypted batches`);
   }
   const { results } = await receiver.db.prepare("SELECT object_key FROM susan_calvin_donations ORDER BY batch_index").all();
   assert.equal(results.length, job.batches.length);
   const recovered = crypto.createHash("sha256");
   let recoveredSessions = 0, recoveredMessages = 0;
   for (const row of results) {
-    const envelope = await (await receiver.bucket.get(row.object_key)).json();
+    const envelope = parseStoredDonation(await (await receiver.bucket.get(row.object_key)).arrayBuffer());
     const donation = decryptDonation(envelope, keys.privateKey);
     recovered.update(JSON.stringify(donation.sessions));
     recoveredSessions += donation.sessions.length;

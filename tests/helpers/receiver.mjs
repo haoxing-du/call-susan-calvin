@@ -16,7 +16,7 @@ export async function createReceiver() {
       export default { fetch() { return new Response("Not found", { status: 404 }); } };` },
   ] });
   const db = await mf.getD1Database("DONATION_METADATA", "receiver");
-  for (const name of ["0001_susan_calvin_donations.sql", "0002_donation_batches.sql"]) {
+  for (const name of ["0001_susan_calvin_donations.sql", "0002_donation_batches.sql", "0003_stream_checksums.sql"]) {
     const sql = await fs.readFile(new URL(`../../migrations/${name}`, import.meta.url), "utf8");
     for (const statement of sql.split(";").map((s) => s.trim()).filter(Boolean)) await db.prepare(statement).run();
   }

@@ -3,11 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { decryptDonation } from "../server/donation-crypto.mjs";
+import { decryptDonation, parseStoredDonation } from "../server/donation-crypto.mjs";
 
 const [, , inputArgument, outputArgument, keyArgument] = process.argv;
 if (!inputArgument || !outputArgument) {
-  console.error("Usage: npm run research:decrypt -- <encrypted-envelope.json> <private-output.json> [private-key.pem]");
+  console.error("Usage: npm run research:decrypt -- <encrypted-envelope.json|.bin> <private-output.json> [private-key.pem]");
   process.exit(1);
 }
 
@@ -21,7 +21,7 @@ if (process.platform === "darwin" && !process.env.SUSAN_CALVIN_DONATION_KEY_PASS
 }
 const passphrase = process.env.SUSAN_CALVIN_DONATION_KEY_PASSPHRASE || keychainPassphrase;
 if (!passphrase) throw new Error("Set SUSAN_CALVIN_DONATION_KEY_PASSPHRASE or configure the maintainer Keychain entry before decrypting.");
-const envelope = JSON.parse(fs.readFileSync(input, "utf8"));
+const envelope = parseStoredDonation(fs.readFileSync(input));
 const donation = decryptDonation(envelope, fs.readFileSync(privateKeyPath, "utf8"), passphrase);
 fs.writeFileSync(output, `${JSON.stringify(donation, null, 2)}\n`, { mode: 0o600, flag: "wx" });
 console.log(`Decrypted donation written with private permissions: ${output}`);

@@ -72,3 +72,14 @@ export function decryptDonation(value, privateKey, passphrase) {
   return donation;
 }
 
+
+// Researcher-side parsing supports both the original JSON objects and streamed files.
+export function parseStoredDonation(value) {
+  const bytes = Buffer.from(value);
+  const magic = Buffer.from("susan-calvin-encrypted-stream-v2\n");
+  if (!bytes.subarray(0, magic.length).equals(magic)) return JSON.parse(bytes.toString("utf8"));
+  const end = bytes.indexOf(10, magic.length);
+  if (end < 0 || end - magic.length > 8_000 || bytes.length - end - 1 > MAX_COMPRESSED_BYTES) throw new Error("Invalid streamed donation file.");
+  const header = JSON.parse(bytes.subarray(magic.length, end).toString("utf8"));
+  return { ...header, ciphertext: bytes.subarray(end + 1).toString("base64url") };
+}

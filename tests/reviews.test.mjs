@@ -56,9 +56,23 @@ test("transient errors and lost responses retry the identical encrypted batch an
     sent.push(init);
     if (sent.length === 1) throw new Error("Lost response");
     if (sent.length === 2) return new Response("{}", { status: 429, headers: { "retry-after": "60" } });
+    if (sent.length === 3) return new Response("Edge unavailable", { status: 520 });
     return new Response(JSON.stringify({ accepted: true, donation_id: crypto.randomUUID() }), { status: 200 });
   } });
-  assert.equal(sent.length, 3);
+  assert.equal(sent.length, 4);
   assert.ok(sent.every((init) => init.body === sent[0].body && init.headers["x-susan-calvin-deletion-token"] === "t".repeat(43)));
-  assert.deepEqual(delays, [1000, 60000]);
+  assert.deepEqual(delays, [1000, 60000, 4000]);
+});
+
+test("stopping the local server cancels an in-flight upload without another attempt", async () => {
+  const controller = new AbortController();
+  let attempts = 0;
+  const donation = { donationRunId: crypto.randomUUID(), redactionMode: "standard", sessions: [{ source: "codex", messages: [message] }], consent: { researchDonation: true } };
+  const pending = submitDonation(donation, "t".repeat(43), { signal: controller.signal, fetchImpl: async (_url, init) => {
+    attempts++;
+    return new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(new Error("Cancelled")), { once: true }));
+  } });
+  controller.abort();
+  await assert.rejects(pending, /Upload stopped/);
+  assert.equal(attempts, 1);
 });

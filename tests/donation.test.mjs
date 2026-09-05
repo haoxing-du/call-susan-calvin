@@ -105,9 +105,9 @@ test("submission sends only the independent encrypted protocol", async () => {
     },
   });
   assert.equal(result.accepted, true);
-  assert.equal(transmitted.headers["x-susan-calvin-protocol"], "1");
+  assert.equal(transmitted.headers["x-susan-calvin-protocol"], "2");
   assert.equal(transmitted.body.includes("Reviewed prompt"), false);
-  assert.ok(sanitizeEncryptedEnvelope(JSON.parse(transmitted.body).encryptedDonation));
+  assert.ok(sanitizeEncryptedEnvelope({ ...JSON.parse(transmitted.headers["x-susan-calvin-envelope"]), ciphertext: transmitted.body.toString("base64url") }));
 });
 
 test("discovers and reads all supported demo session formats", async () => {

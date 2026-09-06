@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { makeDonationPreview } from "./donation-preview.mjs";
 import { sanitizeDonation } from "./donation-schema.mjs";
+import { redactMessages } from "./custom-redaction.mjs";
 
 // Limits apply to one upload, never to the entire donation. Sessions stay intact.
 export const BATCH_BYTES = 4_000_000;
@@ -29,9 +30,11 @@ export function planBatches(sessions) {
 export class Reviews {
   constructor(catalog, { preview = makeDonationPreview, root = os.tmpdir() } = {}) { this.catalog = catalog; this.preview = preview; this.root = root; this.jobs = new Map(); }
   async create(ids, options) {
+    if (!["standard", "custom", "unredacted"].includes(options.mode)) throw new Error("Choose a donation mode.");
+    options = { ...options, unredacted: options.mode === "unredacted", disabledKinds: options.mode === "custom" ? options.disabledKinds || [] : [], disabledMatches: options.mode === "custom" ? options.disabledMatches || [] : [] };
     if (!Array.isArray(ids) || !ids.length || ids.length > MAX_REVIEW_SESSIONS || new Set(ids).size !== ids.length || ids.some((id) => !this.catalog.index.has(id))) throw new Error("Choose available sessions.");
     // Only one review snapshot is retained by this local server.
-    if ([...this.jobs.values()].some((job) => ["preparing", "uploading"].includes(job.status))) throw new Error("Wait for the current operation to finish.");
+    if ([...this.jobs.values()].some((job) => ["preparing", "uploading"].includes(job.status) || job.redacting)) throw new Error("Wait for the current operation to finish.");
     await this.close();
     const folder = await fs.mkdtemp(path.join(this.root, "susan-calvin-review-"));
     await fs.chmod(folder, 0o700);
@@ -63,22 +66,27 @@ export class Reviews {
     if (!Number.isInteger(index) || index < 0 || index >= job.sessions.length) throw new Error("Session not found.");
     return JSON.parse(await fs.readFile(path.join(job.folder, `${index}.json`), "utf8"));
   }
-  async edit(job, index, messages) {
-    if (job.status !== "ready") throw new Error("The review cannot be edited during upload.");
-    const preview = await this.read(job, index);
-    const original = preview.sessions[0];
-    if (!Array.isArray(messages) || messages.length !== original.messages.length || messages.some((m, i) => m.role !== original.messages[i].role || m.timestamp !== original.messages[i].timestamp)) throw new Error("Keep every message and its original order.");
-    const normalized = sanitizeDonation({ donationRunId: job.id, redactionMode: "standard", consent: { researchDonation: true }, sessions: [{ source: original.source, messages }] });
-    if (!normalized) throw new Error("Messages cannot be blank or exceed the supported size.");
-    const bytes = byteLength(normalized.sessions[0]);
-    planBatches([{ bytes, messageCount: messages.length }]);
-    // Keep the exact reviewed text. Normalization happens only at encryption.
-    original.messages = messages;
-    const file = path.join(job.folder, `${index}.json`);
-    await fs.writeFile(`${file}.tmp`, JSON.stringify(preview), { mode: 0o600 });
-    await fs.rename(`${file}.tmp`, file);
-    job.sessions[index].bytes = bytes;
-    job.batches = planBatches(job.sessions);
+  async redact(job, index, { pattern, type }) {
+    if (job.status !== "ready" || job.redacting) throw new Error("Wait for the current operation to finish.");
+    if (job.options.mode !== "custom") throw new Error("Choose Customize redactions to add a redaction.");
+    job.redacting = true;
+    try {
+      const preview = await this.read(job, index);
+      const original = preview.sessions[0];
+      const { messages, count } = await redactMessages(original.messages, pattern, type);
+      const normalized = sanitizeDonation({ donationRunId: job.id, redactionMode: "standard", consent: { researchDonation: true }, sessions: [{ source: original.source, messages }] });
+      if (!normalized) throw new Error("Messages cannot be blank or exceed the supported size.");
+      const bytes = byteLength(normalized.sessions[0]);
+      planBatches([{ bytes, messageCount: messages.length }]);
+      // Keep the exact reviewed text. Normalization happens only at encryption.
+      original.messages = messages;
+      const file = path.join(job.folder, `${index}.json`);
+      await fs.writeFile(`${file}.tmp`, JSON.stringify(preview), { mode: 0o600 });
+      await fs.rename(`${file}.tmp`, file);
+      job.sessions[index].bytes = bytes;
+      job.batches = planBatches(job.sessions);
+      return { preview, count };
+    } finally { job.redacting = false; }
   }
   async donation(job, indices, consent, version, batchIndex) {
     const sessions = [];
@@ -86,7 +94,7 @@ export class Reviews {
     for (const index of indices) {
       const preview = await this.read(job, index);
       const session = preview.sessions[0];
-      sessions.push({ source: session.source, messages: session.messages.map(({ role, text, timestamp }) => ({ role, text, ...(consent.timestamps && timestamp ? { timestamp } : {}) })) });
+      sessions.push({ source: session.source, messages: session.messages.map(({ role, text, timestamp }) => ({ role, text, ...(timestamp ? { timestamp } : {}) })) });
       detections += preview.detectionCount;
     }
     // Stable IDs make a retried upload idempotent, even after a lost response.

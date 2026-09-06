@@ -1,5 +1,5 @@
 // Recognize complete context blocks only at the beginning of a Codex user record.
-// Preserve every character so the two editors reconstruct the original message.
+// Preserve every character so the two display sections preserve the original message.
 const contextPrefix = /^(?:<(recommended_plugins|environment_context|skills_instructions|collaboration_mode)>[\s\S]*?<\/\1>|<permissions instructions>[\s\S]*?<\/permissions instructions>|# AGENTS\.md instructions[^\n]*\n\s*<INSTRUCTIONS>[\s\S]*?<\/INSTRUCTIONS>)/i;
 
 export function splitCodexContext(value) {

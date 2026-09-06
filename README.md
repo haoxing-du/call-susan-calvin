@@ -10,7 +10,7 @@ Requires Node.js 20 or newer on macOS or Linux.
 npx share-with-susan-calvin@latest
 ```
 
-The command discovers recent Claude Code, Claude Cowork, and Codex sessions and opens a review app on localhost. Nothing is transmitted while sessions are discovered, selected, redacted, edited, or reviewed. A donation is sent only after explicit consent and a click on **Donate**.
+The command discovers recent Claude Code, Claude Cowork, and Codex sessions and opens a review app on localhost. Nothing is transmitted while sessions are discovered, selected, redacted or reviewed. A donation is sent only after explicit consent and a click on **Donate**.
 
 To explore the complete interface using synthetic conversations without transmitting anything:
 
@@ -23,10 +23,10 @@ Session selection shows saved titles when available and a two-line excerpt of th
 ## Review modes
 
 - **Standard** applies high-confidence credential and common personal-identifier redactions locally, then shows every included message.
-- **Customize** lets the donor disable individual automatic replacements, add text or regular-expression replacements, redact message text, and deselect entire sessions. Individual messages cannot be removed; blank messages must be replaced with an explicit marker such as `[REDACTED]` before donating.
+- **Customize** starts with every standard redaction applied. Donors can disable individual automatic redactions or add plain-text and regular-expression redactions. Matches are replaced with a fixed `[REDACTED CUSTOM]` marker; messages cannot be freely rewritten or removed. To omit a transcript, deselect the entire session.
 - **Unredacted** disables automatic safeguards, displays a prominent warning, and requires an additional acknowledgement.
 
-Timestamps are excluded unless the donor opts in. Project names, filesystem paths used for discovery, and local session identifiers are never included as donation metadata.
+Messages are read-only in every mode. Original message timestamps are included whenever available. Project names, filesystem paths used for discovery, and local session identifiers are never included as donation metadata.
 
 ## Options and management
 
@@ -45,13 +45,13 @@ Codex can store injected setup and plugin information with the user role. In the
 
 The command runs a foreground server on `127.0.0.1:4318` by default. Stop it with Ctrl+C, or use **Close window and stop local server** on the donation success screen. If the browser prevents the page from closing its own tab, the server still stops and the page says it is safe to close. Closing a tab by itself does not stop the server. There is no idle timeout or automatic restart.
 
-The session catalog is built at startup. Restart to discover new sessions. Selection and consent reset on page reload. Preparing a preview creates an owner-only temporary snapshot on this device; edits are saved to that snapshot when moving between sessions or donating. Refreshing the preview replaces the snapshot and discards edits. Source histories are never modified. Snapshots are removed after successful upload, when replaced, or when the server closes normally. A forced process kill or machine crash may leave temporary files until cleanup.
+The session catalog is built at startup. Restart to discover new sessions. Selection and consent reset on page reload. Preparing a preview creates an owner-only temporary snapshot on this device; custom redactions are saved immediately to that snapshot. Refreshing the preview replaces the snapshot and discards custom redactions. Source histories are never modified. Snapshots are removed after successful upload, when replaced, or when the server closes normally. A forced process kill or machine crash may leave temporary files until cleanup.
 
 A session index (including brief excerpts and transcript titles) and deletion receipts persist under `~/.call-susan-calvin/` with owner-only permissions. Demo mode does not write this index or donation receipts.
 
 ## Large donations
 
-The picker displays 30 sessions per page, and review displays one session and up to 40 messages at a time. All selected sessions remain included. Text and regular-expression replacements apply to the session currently displayed; automatic redaction preferences apply to the whole selection.
+The picker displays 30 sessions per page, and review displays one session and up to 40 messages at a time. All selected sessions remain included. Text and regular-expression redactions apply to the session currently displayed; automatic redaction preferences apply to the whole selection.
 
 Up to 100,000 sessions can be reviewed. Uploads are packed into batches of roughly 4 MB before compression, with complete sessions kept together. A single session may contain up to 7 MB of JSON and 50,000 messages; oversized sessions are reported before upload rather than truncated. The total donation can exceed the old 250-session and 20 MB limits.
 

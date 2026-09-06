@@ -6,7 +6,6 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { discoverAllSessions, sessionsInWindow } from "./discovery.mjs";
 import { makeDonationPreview } from "./donation-preview.mjs";
-import { MAX_DONATION_BYTES, sanitizeDonation } from "./donation-schema.mjs";
 import { submitDonation, deleteDonation } from "./donation-client.mjs";
 import { createDeletionToken, deleteDonationReceipt, loadDonationReceipt, saveDonationReceipt } from "./store.mjs";
 
@@ -73,7 +72,6 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
   const catalog = await discoverAllSessions(discoveryOptions);
   const selected = demo ? catalog.sessions : sessionsInWindow(catalog.sessions, { days, sources });
   const selectedIds = new Set(selected.map((session) => session.id));
-  const pendingDeletionTokens = new Map();
   const reviews = new Reviews(catalog);
   let completedDonation = false;
   let uploading = false;
@@ -109,17 +107,16 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
       if (reviewMatch) {
         const job = reviews.get(reviewMatch[1]);
         if (request.method === "GET" && reviewMatch[2] !== undefined) return json(response, 200, await reviews.read(job, Number(reviewMatch[2])));
-        if (request.method === "PUT" && reviewMatch[2] !== undefined) {
-          const body = await readBody(request, 8_000_000);
-          await reviews.edit(job, Number(reviewMatch[2]), body.messages);
-          return json(response, 200, { saved: true });
+        if (request.method === "POST" && reviewMatch[2] !== undefined) {
+          const body = await readBody(request, 2_000);
+          return json(response, 200, await reviews.redact(job, Number(reviewMatch[2]), body));
         }
         if (request.method === "GET" && !reviewMatch[3]) return json(response, 200, reviews.summary(job));
         if (request.method === "POST" && reviewMatch[3] === "donate") {
           const body = await readBody(request);
-          if (!["ready", "paused"].includes(job.status) || uploading) return json(response, 409, { error: "The review is not ready for upload." });
+          if (!["ready", "paused"].includes(job.status) || uploading || job.redacting) return json(response, 409, { error: "The review is not ready for upload." });
           if (body.researchDonation !== true || (job.options.unredacted && body.unredactedData !== true)) return json(response, 400, { error: "Consent is required." });
-          if (!job.consent) job.consent = { researchDonation: true, ...(job.options.unredacted ? { unredactedData: true } : {}), timestamps: body.timestamps === true, consentedAt: new Date().toISOString() };
+          if (!job.consent) job.consent = { researchDonation: true, ...(job.options.unredacted ? { unredactedData: true } : {}), consentedAt: new Date().toISOString() };
           if (!job.token) job.token = createDeletionToken();
           // Save the group deletion credential BEFORE the first request, including uncertain responses.
           if (!demo) saveDonationReceipt({ donationId: job.id, deletionToken: job.token, donationRunId: job.id, group: true, sourceTypes: [...new Set(job.sessions.map((s) => s.source))], sessionCount: job.sessions.length });
@@ -142,27 +139,11 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
         if (!sessionIds.length) return json(response, 400, { error: "Choose at least one available session." });
         const disabledKinds = safeArray(body.disabledKinds, /^[a-z0-9-]{1,64}$/, 20);
         const disabledMatches = safeArray(body.disabledMatches, /^[a-f0-9]{24}$/, 5_000);
-        const preview = await makeDonationPreview(catalog, sessionIds, { disabledKinds, disabledMatches, unredacted: body.mode === "unredacted" });
+        const preview = await makeDonationPreview(catalog, sessionIds, { disabledKinds: body.mode === "custom" ? disabledKinds : [], disabledMatches: body.mode === "custom" ? disabledMatches : [], unredacted: body.mode === "unredacted" });
         return json(response, 200, preview);
       }
       if (request.method === "POST" && url.pathname === "/api/donations") {
-        const body = await readBody(request, MAX_DONATION_BYTES + 1_000_000);
-        const donation = sanitizeDonation({ ...body.donation, collector: { name: "share-with-susan-calvin", version: APP_VERSION } });
-        if (!donation) return json(response, 400, { error: "The reviewed donation is invalid or too large." });
-        if (demo) { completedDonation = true; return json(response, 201, { accepted: true, donationId: "demo-not-transmitted", demo: true }); }
-        const deletionToken = pendingDeletionTokens.get(donation.donationRunId) || createDeletionToken();
-        pendingDeletionTokens.set(donation.donationRunId, deletionToken);
-        const result = await submitDonation(donation, deletionToken);
-        const receipt = saveDonationReceipt({
-          donationId: result.donation_id,
-          deletionToken,
-          donationRunId: donation.donationRunId,
-          sourceTypes: donation.sourceTypes,
-          sessionCount: donation.redactionSummary.sessions,
-        });
-        pendingDeletionTokens.delete(donation.donationRunId);
-        completedDonation = true;
-        return json(response, 201, { accepted: true, donationId: receipt.donationId, encrypted: true });
+        return json(response, 410, { error: "Prepare a local review before donating. Free-text transcript submission is no longer supported." });
       }
       const donationMatch = url.pathname.match(/^\/api\/donations\/([0-9a-f-]{36})$/);
       if (request.method === "DELETE" && donationMatch) {

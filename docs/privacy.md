@@ -6,19 +6,19 @@ Share with Susan Calvin separates local discovery and review from optional encry
 
 The CLI reads supported session histories from the user's Claude Code, Claude Cowork, and Codex data directories. It streams JSONL records, caches session-level indexing metadata, including a short first-user-message excerpt and any title stored in the transcript, and serves the review interface on `127.0.0.1`. The local server rejects state-changing browser requests from other origins.
 
-Discovery, date and source filtering, session selection, automatic redaction, custom replacements, message editing, whole-session selection, and final preview all happen locally. The program makes no service request during these steps. Installing the package through npm is a separate network operation performed by npm.
+Discovery, date and source filtering, session selection, automatic redaction, custom redactions, whole-session selection, and final preview all happen locally. The program makes no service request during these steps. Installing the package through npm is a separate network operation performed by npm.
 
 ## Reviewed donation
 
-Standard mode redacts recognized credentials, common token formats, private keys, email addresses, North American phone numbers, Social Security numbers, possible payment-card numbers, and usernames in macOS or Linux home-directory paths. Code, URLs, non-home paths, and private prose remain because they may be important research context. Automated detection is incomplete, so every mode provides an exact editable preview.
+Standard mode redacts recognized credentials, common token formats, private keys, email addresses, North American phone numbers, Social Security numbers, possible payment-card numbers, and usernames in macOS or Linux home-directory paths. Code, URLs, non-home paths, and private prose remain because they may be important research context. Automated detection is incomplete, so every mode provides an exact read-only preview.
 
-Custom mode permits automatic rules to be disabled and lets donors add plain-text or regular-expression replacements. Unredacted mode disables automatic redaction and requires an additional warning acknowledgement. Message timestamps are excluded by default. The review interface does not allow individual messages to be removed. Blank messages are rejected rather than silently dropped; donors can use `[REDACTED]` to retain a turn without its sensitive text, or deselect an entire session.
+Custom mode starts with all standard redactions applied. Donors can disable automatic rules and add plain-text or regular-expression redactions, which replace matches only with `[REDACTED CUSTOM]`. The local server computes these changes from its snapshot; it does not accept rewritten transcripts or changes to roles, ordering, or timestamps. Expressions have a five-second time limit. Unredacted mode disables automatic redaction and requires an additional warning acknowledgement. Available message timestamps are always included. Individual messages cannot be removed; blank messages are rejected rather than silently dropped. Donors can deselect an entire session.
 
 Saved titles and first-message excerpts appear only in the local session picker. The cache uses owner-only permissions. Titles stored separately by Claude Cowork or Codex are read locally on each scan. No LLM is called to generate labels.
 
 The final schema removes local session IDs, saved titles, first-message excerpts, and display labels. It retains each session's agent source so researchers can interpret the transcript, along with bounded counts, collector version, redaction mode, and versioned consent.
 
-Recognized leading Codex context blocks are folded into labeled sections in the review. They are still included in the donation and can be expanded and edited. Separating their display does not change the original message roles, order, or content.
+Recognized leading Codex context blocks are folded into labeled sections in the review. They are still included in the donation and can be expanded for inspection. Separating their display does not change the original message roles, order, or content.
 
 ## Encryption and storage
 
@@ -30,7 +30,7 @@ The receiving Worker accepts only the versioned encrypted envelope. Ciphertext i
 
 The server runs in the foreground until stopped with Ctrl+C or the success screen's close button. Closing the tab alone does not stop it. The catalog is discovered at startup; restart to include newly created sessions. Source histories are never modified.
 
-Review snapshots, including editable transcripts and local redaction-match inventories, are written to a private temporary directory (`0700`, files `0600`) so large selections do not have to remain in memory. Navigating saves edits locally. Snapshots are removed after a successful upload, on replacement, or on normal server shutdown. Forced termination may leave temporary files. Browser selection and consent reset on reload; upload resumption requires the original running review.
+Review snapshots, including reviewed transcripts and local redaction-match inventories, are written to a private temporary directory (`0700`, files `0600`) so large selections do not have to remain in memory. Custom redactions are saved immediately; refreshing the preview or changing automatic rules resets them. Snapshots are removed after a successful upload, on replacement, or on normal server shutdown. Forced termination may leave temporary files. Browser selection and consent reset on reload; upload resumption requires the original running review.
 
 The session index persists under `~/.call-susan-calvin/session-index-v1.json` and includes bounded first-message excerpts and titles. Demo mode does not persist the index or donation receipts.
 

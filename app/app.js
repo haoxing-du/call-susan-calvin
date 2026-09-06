@@ -3,16 +3,17 @@ import { splitCodexContext } from "./session-context.js";
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((element) => [element.id, element]));
 const state = {
   catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Set(),
-  acceptedId: "", busy: false, review: null, sessionPage: 0, reviewIndex: 0, messagePage: 0, dirty: false,
+  acceptedId: "", busy: false, review: null, sessionPage: 0, reviewIndex: 0, messagePage: 0,
 };
 
 function setHidden(element, hidden) { element.classList.toggle("hidden", hidden); }
 function formatBytes(value) { return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(1)} MB` : `${Math.ceil(value / 1_000)} KB`; }
 function setError(message = "") { elements.error.textContent = message; }
 function clearReview() {
-  state.preview = null; state.review = null; state.dirty = false;
+  state.preview = null; state.review = null;
   setHidden(elements["review-placeholder"], false);
   setHidden(elements["review-content"], true);
+  elements["custom-status"].textContent = "";
   elements["preview-button"].textContent = "Preview data";
 }
 function invalidateConsent() {
@@ -22,8 +23,7 @@ function invalidateConsent() {
 }
 function updateDonateButton() {
   const messages = state.preview?.sessions.reduce((sum, session) => sum + session.messages.length, 0) || 0;
-  const hasEmptyMessage = (state.preview?.sessions.some((session) => session.messages.some((message) => !message.text.trim())) || false)
-    || [...elements["conversation-preview"].querySelectorAll("textarea")].some((editor) => !editor.value.trim());
+  const hasEmptyMessage = (state.preview?.sessions.some((session) => session.messages.some((message) => !message.text.trim())) || false);
   setHidden(elements["message-validation"], !hasEmptyMessage);
   elements.donate.disabled = state.busy || !messages || hasEmptyMessage || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
 }
@@ -59,7 +59,7 @@ function renderSelectionCount() {
 function renderMode() {
   const descriptions = {
     standard: "Automatically removes high-confidence credentials and common personal identifiers. Review all messages before donating.",
-    custom: "Choose automatic redactions and add plain-text or regular-expression replacements before donating.",
+    custom: "Starts with all standard redactions applied. Adjust automatic rules or add marked redactions below; message text cannot be rewritten.",
     unredacted: "Disables automatic redaction. Every included line must be reviewed, and an additional acknowledgement is required.",
   };
   elements["mode-description"].textContent = descriptions[state.mode];
@@ -90,14 +90,8 @@ function updateNavigation() {
   elements["review-position"].max = state.review?.sessions.length || 1;
   elements["review-total"].textContent = `of ${state.review?.sessions.length || 0} sessions`;
 }
-async function saveEdits() {
-  if (!state.dirty) return;
-  await api(`/api/reviews/${state.review.id}/sessions/${state.reviewIndex}`, "PUT", { messages: state.preview.sessions[0].messages });
-  state.dirty = false;
-}
 async function loadReviewSession(index) {
   if (!state.review || index < 0 || index >= state.review.sessions.length) return;
-  await saveEdits();
   const preview = await api(`/api/reviews/${state.review.id}/sessions/${index}`);
   state.reviewIndex = index; state.messagePage = 0; state.preview = preview;
   renderReview(); updateNavigation();
@@ -117,16 +111,16 @@ async function pollReview() {
     await new Promise((resolve) => setTimeout(resolve, 700));
   }
 }
-async function buildPreview() {
+async function buildPreview(index = 0) {
   if (state.busy) return;
   state.busy = true; setError(); invalidateConsent(); lockControls(true);
+  elements["custom-status"].textContent = "";
   elements["preview-button"].textContent = "Preparing preview…";
   try {
     state.review = await api("/api/reviews", "POST", { sessionIds: [...state.chosen], mode: state.mode, disabledKinds: [...state.disabledKinds], disabledMatches: [...state.disabledMatches] });
-    state.dirty = false;
     const job = await pollReview();
     if (job.status !== "ready") throw new Error(job.error || "Could not prepare the review.");
-    await loadReviewSession(0);
+    await loadReviewSession(Math.min(index, job.sessions.length - 1));
   } catch (error) { clearReview(); setError(error.message); }
   finally { state.busy = false; elements["preview-button"].textContent = "Refresh preview"; lockControls(false); }
 }
@@ -143,7 +137,7 @@ function redactionCheckbox(item, match = null) {
       state.disabledKinds.delete(item.kind);
       for (const existing of item.matches) state.disabledMatches.delete(existing.id);
     } else state.disabledKinds.add(item.kind);
-    void buildPreview();
+    void buildPreview(state.reviewIndex);
   });
   return input;
 }
@@ -187,27 +181,26 @@ function renderConversations() {
     const messages = document.createElement("div"); messages.className = "messages";
     session.messages.slice(state.messagePage * 40, (state.messagePage + 1) * 40).forEach((message) => {
       const parts = session.source === "codex" && message.role === "user" ? splitCodexContext(message.text) : { context: "", text: message.text };
-      const editor = (part, label) => {
-        const textarea = document.createElement("textarea"); textarea.value = parts[part]; textarea.setAttribute("aria-label", label);
-        textarea.required = true;
-        textarea.setAttribute("aria-invalid", String(!parts[part].trim()));
-        textarea.addEventListener("input", () => {
-          parts[part] = textarea.value;
-          message.text = parts.context + parts.text; state.dirty = true;
-          textarea.setAttribute("aria-invalid", String(!textarea.value.trim()));
-          invalidateConsent();
-        });
-        return textarea;
+      const transcript = (part, label) => {
+        const text = document.createElement("pre"); text.className = "transcript-text";
+        text.textContent = parts[part]; text.setAttribute("aria-label", label); text.tabIndex = 0;
+        return text;
       };
       if (parts.context) {
         const context = document.createElement("details"); context.className = "message-context";
         const heading = document.createElement("summary"); heading.textContent = "Codex context · included in donation";
-        context.append(heading, editor("context", "Codex context")); messages.append(context);
+        context.append(heading, transcript("context", "Codex context")); messages.append(context);
       }
       if (parts.text || !parts.context) {
         const row = document.createElement("div"); row.className = `message ${message.role === "user" ? "message-user" : "message-agent"}`;
         const role = document.createElement("span"); role.textContent = message.role === "assistant" ? "Agent" : "You";
-        row.append(role, editor("text", `${role.textContent} message`)); messages.append(row);
+        const label = `${role.textContent} message`;
+        if (message.timestamp) {
+          const time = document.createElement("time"); time.dateTime = message.timestamp;
+          time.textContent = new Date(message.timestamp).toLocaleString(); time.title = message.timestamp;
+          role.append(" · ", time);
+        }
+        row.append(role, transcript("text", label)); messages.append(row);
       }
     });
     details.append(messages); elements["conversation-preview"].append(details);
@@ -234,29 +227,26 @@ function renderReview() {
   renderRedactions(); renderConversations(); renderMode(); updateDonateButton();
 }
 
-function applyCustomRedaction() {
+async function applyCustomRedaction() {
+  if (state.busy || state.mode !== "custom" || !state.preview) return;
   const pattern = elements["custom-pattern"].value;
-  const replacement = elements["custom-replacement"].value.trim() || "[REDACTED CUSTOM]";
   if (!pattern) return elements["custom-status"].textContent = "Enter text or a regular expression.";
-  let expression;
-  try { expression = elements["custom-mode"].value === "regex" ? new RegExp(pattern, "giu") : new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu"); }
-  catch (error) { return elements["custom-status"].textContent = `Invalid expression: ${error.message}`; }
-  if (expression.test("")) return elements["custom-status"].textContent = "The expression cannot match an empty string.";
-  let count = 0;
-  for (const session of state.preview.sessions) for (const message of session.messages) {
-    expression.lastIndex = 0;
-    message.text = message.text.replace(expression, () => { count++; return replacement; });
-  }
-  elements["custom-status"].textContent = count ? `Applied ${count} replacement${count === 1 ? "" : "s"}. Refresh the preview to undo.` : "No matches found.";
-  if (count) { state.dirty = true; elements["custom-pattern"].value = ""; invalidateConsent(); renderConversations(); }
+  state.busy = true; invalidateConsent(); lockControls(true);
+  try {
+    const result = await api(`/api/reviews/${state.review.id}/sessions/${state.reviewIndex}`, "POST", { pattern, type: elements["custom-mode"].value });
+    state.preview = result.preview;
+    elements["custom-status"].textContent = result.count ? `Applied ${result.count} redaction${result.count === 1 ? "" : "s"}. Refresh the preview to undo.` : "No matches found.";
+    if (result.count) elements["custom-pattern"].value = "";
+    renderConversations();
+  } catch (error) { elements["custom-status"].textContent = error.message; }
+  finally { state.busy = false; lockControls(false); }
 }
 
 async function donate() {
   if (state.busy) return;
   state.busy = true; setError(); lockControls(true);
   try {
-    await saveEdits();
-    await api(`/api/reviews/${state.review.id}/donate`, "POST", { researchDonation: elements.consent.checked, unredactedData: elements["unredacted-ack"].checked, timestamps: elements.timestamps.checked });
+    await api(`/api/reviews/${state.review.id}/donate`, "POST", { researchDonation: elements.consent.checked, unredactedData: elements["unredacted-ack"].checked });
     const job = await pollReview();
     if (job.status !== "complete") throw new Error(job.error || "Upload paused. Retry to continue.");
     state.acceptedId = job.donationId;
@@ -301,8 +291,10 @@ elements["select-all"].addEventListener("change", () => {
   clearReview(); invalidateConsent(); renderSessions();
 });
 elements.mode.addEventListener("change", () => {
+  const hadPreview = Boolean(state.preview), index = state.reviewIndex;
   state.mode = elements.mode.value; state.disabledKinds.clear(); state.disabledMatches.clear();
   clearReview(); invalidateConsent(); renderMode();
+  if (hadPreview) void buildPreview(index);
 });
 elements["sessions-prev"].addEventListener("click", () => { state.sessionPage--; renderSessions(); });
 elements["sessions-next"].addEventListener("click", () => { state.sessionPage++; renderSessions(); });
@@ -312,9 +304,8 @@ elements["review-position"].addEventListener("change", () => navigateReview(Numb
 elements["messages-prev"].addEventListener("click", () => { state.messagePage--; renderConversations(); });
 elements["messages-next"].addEventListener("click", () => { state.messagePage++; renderConversations(); });
 elements["close-app"].addEventListener("click", closeApp);
-elements["preview-button"].addEventListener("click", buildPreview);
+elements["preview-button"].addEventListener("click", () => buildPreview());
 elements["apply-custom"].addEventListener("click", applyCustomRedaction);
-elements.timestamps.addEventListener("change", invalidateConsent);
 elements.consent.addEventListener("change", updateDonateButton);
 elements["unredacted-ack"].addEventListener("change", updateDonateButton);
 elements.donate.addEventListener("click", donate);

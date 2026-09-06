@@ -6,11 +6,11 @@ import { encryptDonation, decryptDonation } from "../server/donation-crypto.mjs"
 import { submitDonation } from "../server/donation-client.mjs";
 import crypto from "node:crypto";
 
-const message = { role: "user", text: "Keep the complete session" };
+const message = { role: "user", text: "Keep the complete session", timestamp: "2026-09-01T12:00:00.000Z" };
 const catalog = { index: new Map(Array.from({ length: 501 }, (_, i) => [String(i), {}])) };
 const preview = async (_catalog, [id]) => ({ detectionCount: 1, redactions: [], sessions: [{ sessionId: id, source: "codex", label: id, summary: "Synthetic", messages: [message, { role: "assistant", text: `Answer ${id}` }] }] });
 
-test("disk snapshots support more than 250 sessions, preserve edits, and clean up", async () => {
+test("disk snapshots support more than 250 sessions, preserve transcripts, and clean up", async () => {
   const reviews = new Reviews(catalog, { preview });
   const result = await reviews.create([...catalog.index.keys()], { mode: "standard" });
   const job = reviews.get(result.id);
@@ -22,15 +22,12 @@ test("disk snapshots support more than 250 sessions, preserve edits, and clean u
     assert.equal((await fs.stat(job.folder)).mode & 0o777, 0o700);
     assert.equal((await fs.stat(`${job.folder}/0.json`)).mode & 0o777, 0o600);
     const before = await reviews.read(job, 0);
-    await assert.rejects(reviews.edit(job, 0, [message]), /every message/);
-    await assert.rejects(reviews.edit(job, 0, [{ ...message, text: " " }, before.sessions[0].messages[1]]), /blank/);
-    const messages = [{ ...message, text: "[REDACTED]" }, before.sessions[0].messages[1]];
-    await reviews.edit(job, 0, messages);
-    assert.deepEqual((await reviews.read(job, 0)).sessions[0].messages, messages);
+    await assert.rejects(reviews.redact(job, 0, { pattern: "complete", type: "text" }), /Customize redactions/);
+    assert.deepEqual((await reviews.read(job, 0)).sessions, before.sessions);
     const consent = { researchDonation: true, consentedAt: "2026-09-01T00:00:00Z" };
     const batch = await reviews.donation(job, job.batches[0], consent, "0.2.0", 0);
     assert.equal(batch.group.count, 3);
-    assert.equal(batch.sessions[0].messages[0].text, "[REDACTED]");
+    assert.deepEqual(batch.sessions[0].messages[0], message, "timestamps are included without opt-in");
     assert.equal(batch.donationRunId, (await reviews.donation(job, job.batches[0], consent, "0.2.0", 0)).donationRunId);
     assert.notEqual(batch.donationRunId, (await reviews.donation(job, job.batches[1], consent, "0.2.0", 1)).donationRunId);
     const keys = crypto.generateKeyPairSync("rsa", { modulusLength: 3072 });
@@ -75,4 +72,24 @@ test("stopping the local server cancels an in-flight upload without another atte
   controller.abort();
   await assert.rejects(pending, /Upload stopped/);
   assert.equal(attempts, 1);
+});
+
+
+test("custom redaction only replaces matches with a fixed marker and preserves every turn", async () => {
+  const reviews = new Reviews(catalog, { preview });
+  const result = await reviews.create(["0"], { mode: "custom" });
+  const job = reviews.get(result.id);
+  try {
+    await job.task;
+    const result = await reviews.redact(job, 0, { pattern: "complete", type: "text", replacement: "Invented answer", messages: [] });
+    assert.equal(result.count, 1);
+    assert.deepEqual(result.preview.sessions[0].messages, [{ ...message, text: "Keep the [REDACTED CUSTOM] session" }, { role: "assistant", text: "Answer 0" }]);
+    assert.deepEqual((await reviews.read(job, 0)).sessions, result.preview.sessions);
+    await assert.rejects(reviews.redact(job, 0, { pattern: "(?=Keep)", type: "regex" }), /empty text/);
+    const second = await reviews.redact(job, 0, { pattern: "Answer [0-9]+", type: "regex" });
+    assert.equal(second.preview.sessions[0].messages[1].text, "[REDACTED CUSTOM]");
+    assert.equal(second.preview.sessions[0].messages.length, 2);
+    job.status = "uploading";
+    await assert.rejects(reviews.redact(job, 0, { pattern: "Keep", type: "text" }), /finish/);
+  } finally { await reviews.close(); }
 });

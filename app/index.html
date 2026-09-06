@@ -8,15 +8,12 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <header>
-      <a class="wordmark" href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a>
-      <span class="local-status">Local review</span>
-    </header>
     <main>
       <section class="intro">
-        <h1>Share with Susan Calvin</h1>
+        <p class="local-sticker">This is a local app running on your machine.</p>
+        <h1>Share with <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin</a></h1>
         <p>Select sessions, review the data, and choose what to donate. Data stays on this device until you consent and select Donate.</p>
-        <p class="research-note">Data is contributed to the Susan Calvin Project for research on AI behavior. <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">Data policy</a></p>
+        <p class="research-note">Data is contributed to the <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a> for research on AI behavior. <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">Data policy</a></p>
       </section>
 
       <section id="loading" class="card centered" aria-live="polite">Loading local sessions…</section>
@@ -33,7 +30,7 @@
         </section>
 
         <section class="card review">
-          <div class="step"><span>2</span><div><h2>Review data</h2><p>Redact sensitive text as needed. To omit a transcript, deselect the entire session in step 1.</p></div></div>
+          <div class="step"><span>2</span><div><h2>Review data</h2><p>Messages are read-only. Use Customize redactions to hide sensitive text, or deselect an entire session in step 1.</p></div></div>
           <div id="review-placeholder" class="placeholder">Select sessions and click Preview data.</div>
           <div id="review-content" class="hidden">
             <div id="warning"></div>
@@ -44,19 +41,19 @@
               <div class="custom-fields">
                 <select id="custom-mode" aria-label="Custom redaction type"><option value="text">Plain text</option><option value="regex">Regular expression</option></select>
                 <input id="custom-pattern" maxlength="200" placeholder="Text or pattern to remove">
-                <input id="custom-replacement" maxlength="100" value="[REDACTED CUSTOM]" aria-label="Replacement text">
                 <button id="apply-custom" class="secondary">Apply</button>
               </div>
+              <p class="hint">Matches are replaced with [REDACTED CUSTOM]. Refreshing the preview or changing automatic rules resets custom redactions.</p>
               <p id="custom-status" class="hint"></p>
             </section>
-            <label class="timestamp-option"><input id="timestamps" type="checkbox"> Include message timestamps</label>
+            <p class="hint">Message timestamps are included when available.</p>
             <div class="pagination review-navigation"><button id="review-prev">Previous session</button><label>Session <input id="review-position" type="number" min="1" value="1" aria-label="Session number"></label><span id="review-total"></span><button id="review-next">Next session</button></div>
             <div id="conversation-preview" class="conversations"></div>
             <div class="pagination"><button id="messages-prev" aria-label="Previous messages">←</button><span id="message-page"></span><button id="messages-next" aria-label="Next messages">→</button></div>
-            <p id="message-validation" class="error hidden" aria-live="polite">Messages cannot be empty. Use [REDACTED] to hide sensitive text while keeping the turn, or deselect the session in step 1.</p>
+            <p id="message-validation" class="error hidden" aria-live="polite">This session contains an empty message. Deselect the entire session in step 1 to continue.</p>
             <div class="step consent-heading"><span>3</span><div><h2>Confirm donation</h2><p>The reviewed data is encrypted on this device before upload.</p></div></div>
             <label id="unredacted-consent" class="consent danger hidden"><input id="unredacted-ack" type="checkbox"> I understand that automatic redaction is disabled and private credentials, code, URLs, paths, and personal details may be transmitted.</label>
-            <label class="consent"><input id="consent" type="checkbox"><span>I consent to transmit this reviewed data to the Susan Calvin Project for research under the <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">data policy</a>.</span></label>
+            <label class="consent"><input id="consent" type="checkbox"><span>I consent to transmit this reviewed data to the <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a> for research under the <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">data policy</a>.</span></label>
             <button id="donate" class="donate" disabled>Donate reviewed data</button>
           </div>
           <p id="progress" class="hint" role="status"></p>
@@ -74,7 +71,7 @@
         <p id="delete-status" class="hint"></p>
       </section>
     </main>
-    <footer>Sessions are reviewed locally. Upload requires consent.</footer>
+    <footer>Learn more about the <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a></footer>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

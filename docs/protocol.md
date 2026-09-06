@@ -70,3 +70,7 @@ The default collector uses `x-susan-calvin-protocol: 2`. Encryption and authenti
 The receiver validates only the small header. It prepends the storage prefix and pipes the ciphertext through a `FixedLengthStream` directly into R2, which verifies the SHA-256 checksum. This avoids parsing, stringifying, and hashing megabytes inside the Worker's CPU budget. Incorrect lengths or checksums do not create a donation record.
 
 The `.bin` storage representation is the ASCII line `susan-calvin-encrypted-stream-v2`, a newline, the JSON header, another newline, then binary ciphertext. `parseStoredDonation` and `npm run research:decrypt` support this representation and legacy `.json` objects. D1's `object_sha256` holds the R2-verified whole-object checksum; the legacy `ciphertext_sha256` field is empty for streamed objects.
+
+## Local review integrity
+
+The local app uploads only server-held review snapshots. Standard mode always enables every standard rule; Custom mode begins with that same baseline. The session redaction endpoint accepts a pattern and type, computes the matches locally, and substitutes a fixed `[REDACTED CUSTOM]` marker. It never accepts replacement prose or a rewritten message array. The old free-text local submission endpoint returns HTTP 410. Available source message timestamps are preserved in every mode without a separate opt-in. The encrypted receiver protocol is unchanged.

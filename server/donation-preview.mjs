@@ -14,8 +14,10 @@ function inventory(detections) {
       count: 0,
       enabled: detection.enabled,
       contexts: [],
+      locations: [],
     };
     existing.count++;
+    existing.locations.push({ sessionId: detection.sessionId, messageIndex: detection.messageIndex, before: detection.context.before, after: detection.context.after });
     if (existing.contexts.length < 4) existing.contexts.push({
       before: detection.context.before.replace(/\s+/g, " "),
       match: detection.context.match.length > 120 ? `${detection.context.match.slice(0, 120)}…` : detection.context.match,
@@ -48,9 +50,9 @@ export async function makeDonationPreview(catalog, sessionIds, { disabledKinds =
     const session = catalog.index.get(id);
     if (!session) continue;
     const sourceMessages = await readSessionMessages(session);
-    const messages = sourceMessages.map((message) => {
+    const messages = sourceMessages.map((message, messageIndex) => {
       const result = unredacted ? { text: message.text, detections: [] } : redactText(message.text, { disabledKinds, disabledMatches });
-      detections.push(...result.detections);
+      detections.push(...result.detections.map(detection => ({ ...detection, sessionId: id, messageIndex })));
       return { role: message.role, text: result.text, ...(message.timestamp ? { timestamp: message.timestamp } : {}) };
     }).filter((message) => message.text);
     if (messages.length) sessions.push({ sessionId: id, source: session.agent, label: `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()}`, summary: sessionSummary(messages), messages });

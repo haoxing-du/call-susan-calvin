@@ -121,6 +121,24 @@ export class Reviews {
     }
     return { ...category, matches: [...matches.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value)) };
   }
+  async occurrence(job, kind, matchId, position = 0, cancelled = () => false) {
+    if (job.status !== "ready" || job.redacting) throw new Error("Wait for the preview to finish, then retry.");
+    if (!Number.isSafeInteger(position) || position < 0) throw new Error("Choose an available occurrence.");
+    let total = 0, selected;
+    for (let index = 0; index < job.sessions.length; index++) {
+      if (cancelled() || job.cancelled) throw new Error("Review changed. Reopen the matched value.");
+      const preview = await this.read(job, index);
+      const match = preview.redactions.find(item => item.kind === kind)?.matches.find(match => match.id === matchId);
+      if (!match) continue;
+      if (position >= total && position < total + match.count) {
+        const location = match.locations?.[position - total];
+        if (location) selected = { ...location, value: match.value, enabled: match.enabled };
+      }
+      total += match.count;
+    }
+    if (!selected) throw new Error("Occurrence not found. Reopen the matched value.");
+    return { ...selected, total, position };
+  }
   async writeSession(job, index, preview) {
     const previous = await this.read(job, index);
     const session = preview.sessions[0];

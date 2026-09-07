@@ -1,3 +1,12 @@
+# Custom redaction access and occurrence navigation
+
+This update restores custom inputs at the top of Customize mode, including when no session is open. The Apply to session picker makes the target explicit. Applying or resetting a pattern opens the affected transcript; viewing a matched value collapses the form to its visible summary.
+
+- All 37 tests pass, plus syntax checks. The occurrence test uses real synthetic session files and covers repeated matches in the same message, multiple sessions, message 46, invalid positions, cancellation, value exclusions, custom patterns, snapshot stability after source changes, and exclusion of location/context metadata from donations. The local-server test verifies the occurrence endpoint against demo data.
+- Browser: opened Customize mode from the initial overview and applied a plain-text custom redaction without first opening a session. The custom count increased and the target transcript showed the marker. Opened a detected email, inspected its highlighted context/message, and left it unredacted from the context checkbox; the preview and totals updated.
+- Browser with separate temporary synthetic fixtures: one invoice number appeared in two sessions, at messages 3, 50, and 51. Clicking the number opened occurrence 1 of 3; Next occurrence navigated across sessions to messages 50 and 51 and selected the message page 41–51. The matching message was outlined and the transcript pane scrolled to it. A native click retained the document scroll position (402 before and after).
+- At 320 px, document width remained 305 px; desktop layout was checked at 1280 px. Temporary viewport overrides were reset. The real local app and user transcripts were not changed.
+
 # Concise copy and donation-wide matched strings
 
 This update supersedes the per-session match lists described below.

@@ -104,6 +104,8 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
       }
       const categoryMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})\/redactions\/([a-z-]+)$/);
       if (request.method === "GET" && categoryMatch) return json(response, 200, await reviews.matches(reviews.get(categoryMatch[1]), categoryMatch[2], () => response.destroyed));
+      const occurrenceMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})\/redactions\/([a-z-]+)\/([a-f0-9]{24})$/);
+      if (request.method === "GET" && occurrenceMatch) return json(response, 200, await reviews.occurrence(reviews.get(occurrenceMatch[1]), occurrenceMatch[2], occurrenceMatch[3], Number(url.searchParams.get("position") || 0), () => response.destroyed));
       const reviewMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})(?:\/sessions\/(\d+)|\/(donate))?$/);
       if (reviewMatch) {
         const job = reviews.get(reviewMatch[1]);

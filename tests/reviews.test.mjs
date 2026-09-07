@@ -5,6 +5,8 @@ import { Reviews, planBatches } from "../server/reviews.mjs";
 import { encryptDonation, decryptDonation } from "../server/donation-crypto.mjs";
 import { submitDonation } from "../server/donation-client.mjs";
 import crypto from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 
 const message = { role: "user", text: "Keep the complete session", timestamp: "2026-09-01T12:00:00.000Z" };
 const catalog = { index: new Map(Array.from({ length: 501 }, (_, i) => [String(i), {}])) };
@@ -206,4 +208,47 @@ test("category strings combine all included sessions without truncation or leaki
     job = await prepare(["1"], { mode: "unredacted" });
     assert.deepEqual((await reviews.matches(job, "email")).matches, []);
   } finally { await reviews.close(); }
+});
+
+test("occurrences locate every match across messages and sessions, stay local, and survive redaction choices", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "susan-occurrences-test-"));
+  const number = "4242424242424242";
+  const index = new Map();
+  for (const id of ["a", "b"]) {
+    const file = path.join(root, `${id}.jsonl`);
+    const messages = Array.from({ length: 46 }, (_, i) => ({ type: "user", message: { content: `Message ${i + 1}` } }));
+    messages[45].message.content = `${id}: invoice ${number} followed by another ${number}.`;
+    await fs.writeFile(file, messages.map(m => JSON.stringify(m)).join("\n"));
+    index.set(id, { file, agent: "claude", agentName: "Claude Code", startedAt: "2026-09-01" });
+  }
+  const reviews = new Reviews({ index }, { root });
+  async function prepare(ids, options = {}) {
+    const result = await reviews.create(ids, { mode: "custom", ...options });
+    const job = reviews.get(result.id); await job.task;
+    assert.equal(job.status, "ready"); return job;
+  }
+  try {
+    let job = await prepare(["a", "b"]);
+    const match = (await reviews.matches(job, "payment-number")).matches[0];
+    assert.equal(match.count, 4);
+    const places = await Promise.all([0, 1, 2, 3].map(i => reviews.occurrence(job, "payment-number", match.id, i)));
+    assert.deepEqual(places.map(p => p.sessionId), ["a", "a", "b", "b"]);
+    assert.ok(places.every(p => p.messageIndex === 45 && p.total === 4 && p.value === number));
+    assert.match(places[0].before, /a: invoice $/);
+    assert.match(places[1].before, /followed by another $/);
+    await assert.rejects(reviews.occurrence(job, "payment-number", match.id, 4), /not found/);
+    await assert.rejects(reviews.occurrence(job, "payment-number", match.id, -1), /available/);
+    await assert.rejects(reviews.occurrence(job, "payment-number", match.id, 0, () => true), /changed/);
+    const donation = await reviews.donation(job, [0, 1], { researchDonation: true }, "test", 0);
+    assert.doesNotMatch(JSON.stringify(donation), /locations|invoice 4242424242424242/);
+    await reviews.redact(job, 0, { pattern: "invoice", type: "text" });
+    assert.equal((await reviews.occurrence(job, "payment-number", match.id)).messageIndex, 45);
+    job = await prepare(["b"], { disabledMatches: [match.id] });
+    const disabled = await reviews.occurrence(job, "payment-number", match.id, 1);
+    assert.equal(disabled.total, 2); assert.equal(disabled.sessionId, "b"); assert.equal(disabled.enabled, false);
+    const snapshot = await reviews.read(job, 0);
+    assert.match(snapshot.sessions[0].messages[45].text, /4242424242424242/);
+    await fs.writeFile(index.get("b").file, "");
+    assert.deepEqual(await reviews.occurrence(job, "payment-number", match.id, 1), disabled, "locations describe the reviewed snapshot, not later source changes");
+  } finally { await reviews.close(); await fs.rm(root, { recursive: true, force: true }); }
 });

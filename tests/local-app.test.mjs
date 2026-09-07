@@ -60,6 +60,11 @@ test("paged review uploads only after consent and the success action stops the l
     const emails = await (await call(`/api/reviews/${job.id}/redactions/email`)).json();
     assert.equal(emails.count, 1);
     assert.deepEqual(emails.matches.map(m => [m.value, m.count, m.enabled]), [["researcher@example.com", 1, true]]);
+    const location = await (await call(`/api/reviews/${job.id}/redactions/email/${emails.matches[0].id}?position=0`)).json();
+    assert.equal(location.total, 1);
+    assert.equal(location.messageIndex, 0);
+    assert.match(location.before, /Contact me at /);
+    assert.equal(location.sessionId, catalog.sessions.find(s => s.title === "Demo build failure").id);
     const phones = await (await call(`/api/reviews/${job.id}/redactions/phone`)).json();
     assert.deepEqual(phones.matches, []);
     const preview = await (await call(`/api/reviews/${job.id}/sessions/0`)).json();

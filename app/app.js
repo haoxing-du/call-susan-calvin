@@ -4,7 +4,7 @@ const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((
 const state = {
   catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Map(),
   acceptedId: "", busy: false, review: null, sessionPage: 0, reviewIndex: 0, messagePage: 0,
-  activeId: "", filtered: [], revision: 0, building: false, updating: false, previewRequest: 0, timer: null, customRedactionCount: 0, redactionFocus: null, categoryKind: "", categoryController: null,
+  activeId: "", filtered: [], revision: 0, building: false, updating: false, previewRequest: 0, timer: null, customRedactionCount: 0, redactionFocus: null, categoryKind: "", categoryController: null, customTargetId: "", occurrence: null, occurrenceController: null, occurrenceLoading: false, occurrenceFocus: false,
 };
 
 function setHidden(element, hidden) { element.classList.toggle("hidden", hidden); }
@@ -82,7 +82,15 @@ function renderMode() {
   elements["saved-redactions"].textContent = state.customRedactionCount ? state.mode === "custom"
     ? ""
     : "Custom redactions are paused. Choose Customize redactions to apply them." : "";
-  setHidden(elements["custom-redaction"], state.mode !== "custom" || !state.preview || !state.chosen.has(state.activeId));
+  setHidden(elements["custom-redaction"], state.mode !== "custom");
+  const included = state.catalog.filter(session => state.chosen.has(session.id));
+  if (!state.chosen.has(state.customTargetId)) state.customTargetId = included[0]?.id || "";
+  elements["custom-session"].replaceChildren(...included.map(session => {
+    const option = document.createElement("option"); option.value = session.id;
+    option.textContent = session.title || `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()}`;
+    return option;
+  }));
+  elements["custom-session"].value = state.customTargetId;
   setHidden(elements["unredacted-consent"], state.mode !== "unredacted");
   elements.donate.firstChild.textContent = state.mode === "unredacted" ? "Donate unredacted data " : "Donate reviewed data ";
 }
@@ -97,10 +105,13 @@ async function api(url, method = "GET", body, signal) {
 function lockControls(locked) {
   for (const control of elements.workspace.querySelectorAll("input, select, button")) control.disabled = locked;
   if (!locked) {
-    for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating || !state.preview;
+    for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating || state.review?.status !== "ready" || !state.customTargetId;
     for (const control of elements["bundle-redactions"].querySelectorAll("input")) control.disabled = state.updating || state.review?.status !== "ready" || (control.dataset.redactionKey.startsWith("match:") && state.disabledKinds.has(control.dataset.kind));
     elements.consent.disabled = state.updating || !state.chosen.size || state.review?.status !== "ready";
     elements["unredacted-ack"].disabled = elements.consent.disabled;
+    elements["occurrence-prev"].disabled = state.occurrenceLoading || !state.occurrence || state.occurrence.position <= 0;
+    elements["occurrence-next"].disabled = state.occurrenceLoading || !state.occurrence || state.occurrence.position + 1 >= state.occurrence.total;
+    elements["occurrence-redact"].disabled = state.updating || state.occurrenceLoading || state.disabledKinds.has(state.occurrence?.kind);
     renderSelectionCount(); updateDonateButton(); updateNavigation();
   }
 }
@@ -119,9 +130,12 @@ function updateNavigation() {
 function previewOptions() {
   return { mode: state.mode, disabledKinds: [...state.disabledKinds], disabledMatches: [...state.disabledMatches.keys()] };
 }
-async function showSession(id) {
+async function showSession(id, occurrence = null) {
   if (state.busy || !id) return;
   state.activeId = id;
+  state.occurrence = occurrence;
+  if (!occurrence) { state.occurrenceController?.abort(); state.occurrenceLoading = false; }
+  if (state.chosen.has(id)) state.customTargetId = id;
   setHidden(elements["session-viewer"], false);
   setHidden(elements["back-overview"], false);
   const request = ++state.previewRequest, revision = state.revision;
@@ -139,9 +153,15 @@ async function showSession(id) {
       : await api("/api/donation-preview", "POST", { sessionIds: [id], ...previewOptions() });
     if (request !== state.previewRequest || revision !== state.revision) return;
     if (!preview.sessions.length) throw new Error("This session no longer has readable messages. Deselect it to continue.");
-    state.reviewIndex = index; state.messagePage = 0; state.preview = preview;
+    state.reviewIndex = index; state.messagePage = occurrence ? Math.floor(occurrence.messageIndex / 40) : 0; state.preview = preview;
     state.customRedactionCount = preview.customRedactionCount || 0;
     renderReview(); lockControls(state.busy);
+    if (occurrence) {
+      const target = elements["conversation-preview"].querySelector(".message-occurrence");
+      if (target) elements["conversation-preview"].scrollTop = target.getBoundingClientRect().top - elements["conversation-preview"].getBoundingClientRect().top + elements["conversation-preview"].scrollTop - 8;
+      elements[state.occurrenceFocus ? "occurrence-redact" : "occurrence-context"].focus({ preventScroll: true });
+      state.occurrenceFocus = false;
+    }
     restoreRedactionFocus();
   } catch (error) {
     if (request !== state.previewRequest || revision !== state.revision) return;
@@ -173,6 +193,7 @@ function navigateReview(index) {
 function scheduleReview() {
   if (state.busy) return;
   clearTimeout(state.timer);
+  state.occurrenceController?.abort(); state.occurrenceLoading = false;
   state.revision++; state.updating = true; state.review = null;
   clearReview(); invalidateConsent(); renderMode(); renderOverview(); lockControls(false);
   setHidden(elements["retry-preview"], true); setError();
@@ -199,7 +220,7 @@ async function buildPreview() {
       const ids = [...state.chosen];
       state.updating = ids.length > 0;
       // Display just the active session while the full donation snapshot prepares.
-      void showSession(state.activeId);
+      if (!state.occurrence) void showSession(state.activeId);
       if (!ids.length) { state.updating = false; lockControls(false); break; }
       let job = await api("/api/reviews", "POST", { sessionIds: ids, ...previewOptions() });
       while (job.status === "preparing" && revision === state.revision) {
@@ -216,7 +237,8 @@ async function buildPreview() {
       state.customRedactionCount = job.customRedactionCount || 0;
       renderOverview(); renderMode();
       elements["progress"].textContent = ""; setError();
-      await showSession(state.activeId);
+      if (state.occurrence) await openOccurrence(state.occurrence.kind, state.occurrence.matchId, state.occurrence.position);
+      else await showSession(state.activeId);
       restoreRedactionFocus();
     } while (revision !== state.revision);
   } catch (error) {
@@ -259,9 +281,13 @@ async function loadCategory(item, container) {
     container.replaceChildren();
     if (!result.matches.length) { status.textContent = "No matches in included sessions."; container.append(status); }
     for (const match of result.matches) {
-      const row = document.createElement(state.mode === "custom" ? "label" : "div"); row.className = "match";
-      if (state.mode === "custom") row.append(redactionCheckbox(item, match));
-      const code = document.createElement("code"); code.textContent = match.value;
+      const row = document.createElement("div"); row.className = "match";
+      if (state.mode === "custom") {
+        const input = redactionCheckbox(item, match); input.setAttribute("aria-label", `Redact ${match.value}`); row.append(input);
+      }
+      const code = document.createElement("button"); code.className = "match-open"; code.textContent = match.value;
+      code.setAttribute("aria-label", `View occurrences of ${match.value}`);
+      code.addEventListener("click", () => void openOccurrence(item.kind, match.id));
       const count = document.createElement("span"); count.className = "match-count";
       count.textContent = `${match.count.toLocaleString()}×${match.enabled ? "" : " · Not redacted"}`;
       row.append(code, count); container.append(row);
@@ -278,18 +304,55 @@ async function loadCategory(item, container) {
   }
 }
 
+async function openOccurrence(kind, matchId, position = 0) {
+  if (state.busy || state.updating || state.review?.status !== "ready") return;
+  state.occurrenceController?.abort();
+  const controller = new AbortController(); state.occurrenceController = controller; state.occurrenceLoading = true;
+  const reviewId = state.review.id;
+  elements["occurrence-error"].textContent = ""; setError(); lockControls(false);
+  try {
+    const result = await api(`/api/reviews/${reviewId}/redactions/${kind}/${matchId}?position=${position}`, "GET", null, controller.signal);
+    if (controller.signal.aborted || state.review?.id !== reviewId) return;
+    elements["bundle-details"].open = false; elements["custom-redaction"].open = false;
+    // Reveal the location's catalog page without changing donation inclusion.
+    if (!state.filtered.some(s => s.id === result.sessionId)) { elements["session-search"].value = ""; state.filtered = state.catalog; }
+    state.sessionPage = Math.floor(state.filtered.findIndex(s => s.id === result.sessionId) / 30);
+    await showSession(result.sessionId, { ...result, kind, matchId }); renderSessions();
+  } catch (error) {
+    if (!controller.signal.aborted && state.review?.id === reviewId) {
+      state.occurrence = null; setHidden(elements.occurrence, true);
+      setError(`${error.message} Click the matched value to retry.`);
+    }
+  } finally {
+    if (state.occurrenceController === controller) { state.occurrenceController = null; state.occurrenceLoading = false; lockControls(state.busy); }
+  }
+}
+
+function renderOccurrence() {
+  const match = state.occurrence;
+  setHidden(elements.occurrence, !match);
+  if (!match) return;
+  elements["occurrence-position"].textContent = `${match.position + 1} of ${match.total}`;
+  elements["occurrence-label"].textContent = `Message ${match.messageIndex + 1} · Match context (local only)`;
+  const marked = document.createElement("mark"); marked.textContent = match.value;
+  elements["occurrence-context"].replaceChildren(match.before, marked, match.after);
+  elements["occurrence-redact"].checked = match.enabled;
+  setHidden(elements["occurrence-toggle"], state.mode !== "custom");
+}
+
 function renderConversations() {
   elements["conversation-preview"].replaceChildren();
   state.preview.sessions.forEach((session, sessionIndex) => {
     const details = document.createElement("details"); details.className = "conversation"; if (sessionIndex === 0) details.open = true;
     const summary = document.createElement("summary");
     const title = document.createElement("span");
-    const strong = document.createElement("strong"); strong.textContent = session.label;
+    const strong = document.createElement("strong"); strong.textContent = state.catalog.find(item => item.id === session.sessionId)?.title || session.label;
     const small = document.createElement("small"); small.textContent = session.summary;
     const count = document.createElement("b"); count.textContent = `${session.messages.length} messages`;
     title.append(strong, small); summary.append(title, count); details.append(summary);
     const messages = document.createElement("div"); messages.className = "messages";
-    session.messages.slice(state.messagePage * 40, (state.messagePage + 1) * 40).forEach((message) => {
+    session.messages.slice(state.messagePage * 40, (state.messagePage + 1) * 40).forEach((message, pageIndex) => {
+      const matched = state.occurrence?.messageIndex === state.messagePage * 40 + pageIndex;
       const parts = session.source === "codex" && message.role === "user" ? splitCodexContext(message.text) : { context: "", text: message.text };
       const transcript = (part, label) => {
         const text = document.createElement("pre"); text.className = "transcript-text";
@@ -297,12 +360,12 @@ function renderConversations() {
         return text;
       };
       if (parts.context) {
-        const context = document.createElement("details"); context.className = "message-context";
+        const context = document.createElement("details"); context.className = `message-context${matched ? " message-occurrence" : ""}`; if (matched) context.open = true;
         const heading = document.createElement("summary"); heading.textContent = "Codex context · included in donation";
         context.append(heading, transcript("context", "Codex context")); messages.append(context);
       }
       if (parts.text || !parts.context) {
-        const row = document.createElement("div"); row.className = `message ${message.role === "user" ? "message-user" : "message-agent"}`;
+        const row = document.createElement("div"); row.className = `message ${message.role === "user" ? "message-user" : "message-agent"}${matched ? " message-occurrence" : ""}`;
         const role = document.createElement("span"); role.textContent = message.role === "assistant" ? "Agent" : "You";
         const label = `${role.textContent} message`;
         if (message.timestamp) {
@@ -385,7 +448,7 @@ function renderReview() {
   setHidden(elements["review-placeholder"], true); setHidden(elements["review-content"], false);
   const count = state.preview.detectionCount + (state.preview.customDetectionCount || 0);
   elements["session-redaction-summary"].textContent = `${state.chosen.has(state.activeId) ? "Included" : "Not included"} · ${count.toLocaleString()} redaction${count === 1 ? "" : "s"}`;
-  renderConversations(); renderMode(); updateDonateButton();
+  renderOccurrence(); renderConversations(); renderMode(); updateDonateButton();
 }
 
 function clearCustomError() {
@@ -394,7 +457,10 @@ function clearCustomError() {
 }
 
 async function applyCustomRedaction() {
-  if (state.busy || state.updating || state.review?.status !== "ready" || state.reviewIndex < 0 || state.mode !== "custom" || !state.preview || !state.chosen.has(state.activeId)) return;
+  if (state.busy || state.updating || state.review?.status !== "ready" || state.mode !== "custom" || !state.chosen.has(state.customTargetId)) return;
+  const targetId = state.customTargetId;
+  const targetIndex = state.review.sessions.findIndex(s => s.id === targetId);
+  if (targetIndex < 0) return;
   const pattern = elements["custom-pattern"].value;
   clearCustomError(); elements["custom-status"].textContent = "";
   if (!pattern) {
@@ -402,14 +468,18 @@ async function applyCustomRedaction() {
     elements["custom-pattern"].setAttribute("aria-invalid", "true");
     return elements["custom-pattern"].focus();
   }
+  state.occurrenceController?.abort(); state.occurrenceLoading = false;
   state.busy = true; invalidateConsent(); lockControls(true);
   try {
-    const result = await api(`/api/reviews/${state.review.id}/sessions/${state.reviewIndex}`, "POST", { pattern, type: elements["custom-mode"].value });
+    const result = await api(`/api/reviews/${state.review.id}/sessions/${targetIndex}`, "POST", { pattern, type: elements["custom-mode"].value });
+    state.activeId = targetId; state.reviewIndex = targetIndex; state.messagePage = 0; state.occurrence = null;
     state.preview = result.preview;
+    setHidden(elements["session-viewer"], false); setHidden(elements["back-overview"], false); highlightSession();
     state.review = { ...state.review, ...result.overview };
     state.customRedactionCount = result.preview.customRedactionCount || 0;
     elements["custom-status"].textContent = result.count ? `Applied ${result.count} redaction${result.count === 1 ? "" : "s"}.` : "No matches found. Try different text or a pattern.";
     if (result.count) elements["custom-pattern"].value = "";
+    elements["bundle-details"].open = false;
     renderOverview(); renderReview();
   } catch (error) {
     elements["custom-error"].textContent = `${error.message} Check the text or pattern and try again.`;
@@ -418,13 +488,19 @@ async function applyCustomRedaction() {
 }
 
 async function resetCustomRedactions() {
-  if (state.busy || state.updating || !state.preview || state.mode !== "custom" || state.review?.status !== "ready" || state.reviewIndex < 0) return;
+  if (state.busy || state.updating || state.mode !== "custom" || state.review?.status !== "ready" || !state.chosen.has(state.customTargetId)) return;
+  const targetId = state.customTargetId, targetIndex = state.review.sessions.findIndex(s => s.id === targetId);
+  if (targetIndex < 0) return;
+  state.occurrenceController?.abort(); state.occurrenceLoading = false;
   state.busy = true; invalidateConsent(); lockControls(true); clearCustomError();
   elements["custom-status"].textContent = "";
   try {
-    const result = await api(`/api/reviews/${state.review.id}/sessions/${state.reviewIndex}`, "DELETE");
+    const result = await api(`/api/reviews/${state.review.id}/sessions/${targetIndex}`, "DELETE");
+    state.activeId = targetId; state.reviewIndex = targetIndex; state.messagePage = 0; state.occurrence = null;
+    setHidden(elements["session-viewer"], false); setHidden(elements["back-overview"], false); highlightSession();
     state.preview = result.preview; state.customRedactionCount = result.preview.customRedactionCount || 0;
     state.review = { ...state.review, ...result.overview };
+    elements["bundle-details"].open = false;
     renderOverview(); renderReview();
     elements["custom-status"].textContent = "Custom redactions reset.";
   } catch (error) { elements["custom-status"].textContent = `${error.message} Try resetting again.`; }
@@ -481,7 +557,10 @@ elements["select-all"].addEventListener("change", () => {
   renderSessions(); scheduleReview();
 });
 elements.mode.addEventListener("change", () => {
-  state.mode = elements.mode.value; state.disabledKinds.clear(); state.disabledMatches.clear();
+  state.mode = elements.mode.value;
+  if (state.mode === "custom") elements["custom-redaction"].open = true;
+  if (state.mode === "unredacted") state.occurrence = null;
+  state.disabledKinds.clear(); state.disabledMatches.clear();
   scheduleReview();
 });
 elements["session-search"].addEventListener("input", () => {
@@ -494,11 +573,11 @@ elements["sessions-next"].addEventListener("click", () => { state.sessionPage++;
 elements["review-prev"].addEventListener("click", () => navigateReview(state.catalog.findIndex((s) => s.id === state.activeId) - 1));
 elements["review-next"].addEventListener("click", () => navigateReview(state.catalog.findIndex((s) => s.id === state.activeId) + 1));
 elements["review-position"].addEventListener("change", () => navigateReview(Number(elements["review-position"].value) - 1));
-elements["messages-prev"].addEventListener("click", () => { state.messagePage--; renderConversations(); });
-elements["messages-next"].addEventListener("click", () => { state.messagePage++; renderConversations(); });
+elements["messages-prev"].addEventListener("click", () => { state.messagePage--; state.occurrence = null; renderOccurrence(); renderConversations(); });
+elements["messages-next"].addEventListener("click", () => { state.messagePage++; state.occurrence = null; renderOccurrence(); renderConversations(); });
 elements["close-app"].addEventListener("click", closeApp);
 elements["back-overview"].addEventListener("click", () => {
-  state.activeId = ""; state.preview = null; state.previewRequest++;
+  state.activeId = ""; state.preview = null; state.previewRequest++; state.occurrence = null; state.occurrenceController?.abort();
   elements["session-viewer"].setAttribute("aria-busy", "false");
   setHidden(elements["session-viewer"], true);
   elements["bundle-details"].open = true;
@@ -540,3 +619,15 @@ async function loadCatalog() {
 }
 elements["retry-catalog"].addEventListener("click", loadCatalog);
 void loadCatalog();
+
+elements["custom-session"].addEventListener("change", () => { state.customTargetId = elements["custom-session"].value; clearCustomError(); elements["custom-status"].textContent = ""; });
+elements["occurrence-prev"].addEventListener("click", () => { if (state.occurrence) void openOccurrence(state.occurrence.kind, state.occurrence.matchId, state.occurrence.position - 1); });
+elements["occurrence-next"].addEventListener("click", () => { if (state.occurrence) void openOccurrence(state.occurrence.kind, state.occurrence.matchId, state.occurrence.position + 1); });
+elements["occurrence-redact"].addEventListener("change", () => {
+  const match = state.occurrence;
+  if (!match) return;
+  state.occurrenceFocus = true;
+  if (elements["occurrence-redact"].checked) state.disabledMatches.delete(match.matchId);
+  else state.disabledMatches.set(match.matchId, match.kind);
+  scheduleReview();
+});

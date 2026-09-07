@@ -102,6 +102,8 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
         const options = { mode: body.mode, unredacted: body.mode === "unredacted", disabledKinds: safeArray(body.disabledKinds, /^[a-z0-9-]{1,64}$/, 20), disabledMatches: safeArray(body.disabledMatches, /^[a-f0-9]{24}$/, 5_000) };
         return json(response, 202, await reviews.create(body.sessionIds, options));
       }
+      const categoryMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})\/redactions\/([a-z-]+)$/);
+      if (request.method === "GET" && categoryMatch) return json(response, 200, await reviews.matches(reviews.get(categoryMatch[1]), categoryMatch[2], () => response.destroyed));
       const reviewMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})(?:\/sessions\/(\d+)|\/(donate))?$/);
       if (reviewMatch) {
         const job = reviews.get(reviewMatch[1]);

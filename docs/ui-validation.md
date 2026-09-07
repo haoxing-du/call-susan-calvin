@@ -1,3 +1,28 @@
+# Concise copy and donation-wide matched strings
+
+This update supersedes the per-session match lists described below.
+
+- All 36 tests and syntax checks pass. The new category test covers 501 sessions, aggregation of repeated values, full strings, individual and category exclusions, changed inclusion, zero matches, unredacted mode, cancellation, and bounded summary polling. The local-server test also exercises the category endpoint against demo transcripts.
+- Browser checks covered Standard and Customize mode, opening the email category, excluding and restoring its value, restoring checkbox focus after preparation, and viewing a session without changing inclusion or totals. A direct session click kept scrollY at 0; Back to overview restored the expanded category.
+- At 320 px, expanded matched strings fit without horizontal page overflow (document width 305 px). The desktop layout was checked at 1280 px. Viewport overrides were reset; no console errors were observed. All browser data was synthetic.
+
+## Plain words; delete repetition
+
+| Severity | Location | Before | After | Why |
+| --- | --- | --- | --- | --- |
+| LOW | app/index.html:15, app/index.html:23, app/index.html:34, app/app.js:75, app/app.js:384 | Repeated explanations of donation scope, session viewing, read-only messages, timestamps and privacy | Short headings, one donation-wide scope label, compact inclusion/count status, no idle session panel | Removes repeated instructions so controls and results are easier to scan. |
+| LOW | app/index.html:48 | Multi-sentence explanation of saved patterns and automatic-rule ordering | One sentence naming the replacement marker and persistence | Keeps the consequence and duration next to the action. |
+
+## Verb-first buttons
+
+| Severity | Location | Before | After | Why |
+| --- | --- | --- | --- | --- |
+| LOW | app/index.html:53 | Apply | Redact matches | Names the action without requiring surrounding explanation. |
+
+Verification: inspected app/index.html and app/app.js copy, including action labels, mode descriptions, errors and success messages. Listed findings are fixed; no remaining actionable writing findings in this inspected scope.
+
+Approve
+
 # Donation-wide redaction overview
 
 Validated locally on 2026-09-06 with synthetic data. This supersedes the prior default of opening the first session automatically.

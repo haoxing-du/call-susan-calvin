@@ -57,6 +57,11 @@ test("paged review uploads only after consent and the success action stops the l
     do { status = await (await call(`/api/reviews/${job.id}`)).json(); } while (status.status === "preparing");
     assert.equal(status.status, "ready");
     assert.equal(status.sessions.length, 3);
+    const emails = await (await call(`/api/reviews/${job.id}/redactions/email`)).json();
+    assert.equal(emails.count, 1);
+    assert.deepEqual(emails.matches.map(m => [m.value, m.count, m.enabled]), [["researcher@example.com", 1, true]]);
+    const phones = await (await call(`/api/reviews/${job.id}/redactions/phone`)).json();
+    assert.deepEqual(phones.matches, []);
     const preview = await (await call(`/api/reviews/${job.id}/sessions/0`)).json();
     assert.equal(preview.sessions.length, 1);
     assert.equal((await call(`/api/reviews/${job.id}/sessions/0`, "PUT", { messages: [{ role: "user", text: "Invented transcript" }] })).status, 405);

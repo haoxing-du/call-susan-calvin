@@ -4,7 +4,7 @@ const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((
 const state = {
   catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Map(),
   acceptedId: "", busy: false, review: null, sessionPage: 0, reviewIndex: 0, messagePage: 0,
-  activeId: "", filtered: [], revision: 0, building: false, updating: false, previewRequest: 0, timer: null, customRedactionCount: 0, redactionFocus: null,
+  activeId: "", filtered: [], revision: 0, building: false, updating: false, previewRequest: 0, timer: null, customRedactionCount: 0, redactionFocus: null, categoryKind: "", categoryController: null,
 };
 
 function setHidden(element, hidden) { element.classList.toggle("hidden", hidden); }
@@ -16,7 +16,7 @@ function clearReview() {
   setHidden(elements["review-content"], true);
   elements["custom-status"].textContent = "";
   clearCustomError();
-  elements["review-placeholder"].textContent = state.activeId ? "Loading session…" : "No session open. Click any session title to view it.";
+  elements["review-placeholder"].textContent = state.activeId ? "Loading session…" : "";
 }
 function invalidateConsent() {
   elements.consent.checked = false;
@@ -74,21 +74,21 @@ function renderSelectionCount() {
 
 function renderMode() {
   const descriptions = {
-    standard: "Automatically removes high-confidence credentials and common personal identifiers. Review all messages before donating.",
-    custom: "Starts with all standard redactions applied. Adjust automatic rules or add marked redactions below; message text cannot be rewritten.",
-    unredacted: "Disables automatic redaction. Every included line must be reviewed, and an additional acknowledgement is required.",
+    standard: "",
+    custom: "Uncheck a rule or value to leave it unredacted across all included sessions.",
+    unredacted: "",
   };
   elements["mode-description"].textContent = descriptions[state.mode];
   elements["saved-redactions"].textContent = state.customRedactionCount ? state.mode === "custom"
-    ? "Your saved custom redactions are applied to included sessions."
-    : "Your custom redactions are saved but not applied in this mode. Choose Customize redactions to apply them." : "";
+    ? ""
+    : "Custom redactions are paused. Choose Customize redactions to apply them." : "";
   setHidden(elements["custom-redaction"], state.mode !== "custom" || !state.preview || !state.chosen.has(state.activeId));
   setHidden(elements["unredacted-consent"], state.mode !== "unredacted");
   elements.donate.firstChild.textContent = state.mode === "unredacted" ? "Donate unredacted data " : "Donate reviewed data ";
 }
 
-async function api(url, method = "GET", body) {
-  const response = await fetch(url, { method, ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
+async function api(url, method = "GET", body, signal) {
+  const response = await fetch(url, { method, signal, ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || "The local request failed.");
   return result;
@@ -98,8 +98,7 @@ function lockControls(locked) {
   for (const control of elements.workspace.querySelectorAll("input, select, button")) control.disabled = locked;
   if (!locked) {
     for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating || !state.preview;
-    for (const control of elements.redactions.querySelectorAll("input")) control.disabled = state.updating || !state.preview || state.disabledKinds.has(control.dataset.kind);
-    for (const control of elements["bundle-redactions"].querySelectorAll("input")) control.disabled = state.updating || state.review?.status !== "ready";
+    for (const control of elements["bundle-redactions"].querySelectorAll("input")) control.disabled = state.updating || state.review?.status !== "ready" || (control.dataset.redactionKey.startsWith("match:") && state.disabledKinds.has(control.dataset.kind));
     elements.consent.disabled = state.updating || !state.chosen.size || state.review?.status !== "ready";
     elements["unredacted-ack"].disabled = elements.consent.disabled;
     renderSelectionCount(); updateDonateButton(); updateNavigation();
@@ -123,6 +122,7 @@ function previewOptions() {
 async function showSession(id) {
   if (state.busy || !id) return;
   state.activeId = id;
+  setHidden(elements["session-viewer"], false);
   setHidden(elements["back-overview"], false);
   const request = ++state.previewRequest, revision = state.revision;
   state.preview = null;
@@ -154,14 +154,14 @@ async function showSession(id) {
 }
 function restoreRedactionFocus() {
   if (state.updating || !state.redactionFocus) return;
-  if (document.activeElement === document.body && (state.redactionFocus.key.startsWith("kind:") || state.activeId === state.redactionFocus.sessionId)) {
+  if (document.activeElement === document.body && (state.redactionFocus.key.startsWith("kind:") || state.redactionFocus.key.startsWith("match:"))) {
     const control = [...elements["review-panel"].querySelectorAll("input[data-redaction-key]")].find(input => input.dataset.redactionKey === state.redactionFocus.key);
     if (control) {
       const details = control.closest("details"); if (details) details.open = true;
       control.focus({ preventScroll: true });
     }
   }
-  state.redactionFocus = null;
+  if (!state.categoryController) state.redactionFocus = null;
 }
 function navigateReview(index) {
   if (state.busy || !Number.isInteger(index) || index < 0 || index >= state.catalog.length) return updateNavigation();
@@ -248,29 +248,34 @@ function redactionCheckbox(item, match = null) {
   return input;
 }
 
-function renderRedactions() {
-  elements.redactions.replaceChildren();
-  if (state.mode === "unredacted") return;
-  const wrapper = document.createElement("div"); wrapper.className = "redactions";
-  for (const item of state.preview.redactions) {
-    const details = document.createElement("details");
-    const summary = document.createElement("summary");
-    const label = document.createElement("span"); label.textContent = item.label;
-    const count = document.createElement("b"); count.textContent = `${item.enabledCount}/${item.count}`;
-    summary.append(label, count); details.append(summary);
-    const matches = document.createElement("div"); matches.className = "matches";
-    for (const match of item.matches) {
+async function loadCategory(item, container) {
+  state.categoryController?.abort();
+  const controller = new AbortController(); state.categoryController = controller;
+  container.textContent = "Loading matches…";
+  const status = document.createElement("p"); status.className = "hint"; status.setAttribute("role", "status");
+  try {
+    const result = await api(`/api/reviews/${state.review.id}/redactions/${item.kind}`, "GET", null, controller.signal);
+    if (controller.signal.aborted || !container.isConnected) return;
+    container.replaceChildren();
+    if (!result.matches.length) { status.textContent = "No matches in included sessions."; container.append(status); }
+    for (const match of result.matches) {
       const row = document.createElement(state.mode === "custom" ? "label" : "div"); row.className = "match";
-      if (state.mode === "custom") row.append(redactionCheckbox(item, match), " ");
-      const code = document.createElement("code"); code.textContent = match.value; row.append(code, ` · ${match.count}×`);
-      matches.append(row);
+      if (state.mode === "custom") row.append(redactionCheckbox(item, match));
+      const code = document.createElement("code"); code.textContent = match.value;
+      const count = document.createElement("span"); count.className = "match-count";
+      count.textContent = `${match.count.toLocaleString()}×${match.enabled ? "" : " · Not redacted"}`;
+      row.append(code, count); container.append(row);
     }
-    details.append(matches); wrapper.append(details);
+    lockControls(state.busy);
+  } catch (error) {
+    if (controller.signal.aborted || !container.isConnected) return;
+    container.replaceChildren(); status.textContent = "Unable to load matches.";
+    const retry = document.createElement("button"); retry.className = "secondary"; retry.textContent = "Retry loading matches";
+    retry.addEventListener("click", () => void loadCategory(item, container));
+    container.append(status, retry);
+  } finally {
+    if (state.categoryController === controller) { state.categoryController = null; restoreRedactionFocus(); }
   }
-  if (!state.preview.redactions.length) {
-    const empty = document.createElement("p"); empty.className = "hint"; empty.textContent = "No automatic matches were found. Automated detection is not exhaustive."; wrapper.append(empty);
-  }
-  elements.redactions.append(wrapper);
 }
 
 function renderConversations() {
@@ -319,53 +324,68 @@ function renderConversations() {
 function renderOverview() {
   const ready = !state.updating && state.review?.status === "ready";
   setHidden(elements["bundle-overview"], !ready);
+  state.categoryController?.abort(); state.categoryController = null;
   elements["bundle-redactions"].replaceChildren();
-  elements["bundle-status"].textContent = !state.chosen.size ? "No sessions included. Check a session box to include it in your donation."
-    : !ready ? state.updating ? "Calculating redactions across all included sessions…" : "The donation overview could not be prepared. Retry loading the preview." : "";
+  elements["bundle-status"].textContent = !state.chosen.size ? "Include a session to review redactions."
+    : !ready ? state.updating ? "Preparing redactions…" : "Unable to prepare redactions. Retry loading the preview." : "";
   if (!ready) return;
   const job = state.review;
   const total = job.detections + (job.customDetections || 0);
-  elements["redaction-summary"].textContent = `${job.total.toLocaleString()} included sessions · ${job.messages.toLocaleString()} messages. Viewing or searching sessions does not change these totals.`;
+  elements["redaction-summary"].textContent = `${job.total.toLocaleString()} sessions · ${job.messages.toLocaleString()} messages`;
   if (state.mode === "unredacted") {
     elements.warning.className = "banner danger";
     elements.warning.textContent = "No redactions are applied to this donation. Credentials, personal details, code, URLs, and paths may be present.";
   } else {
     elements.warning.className = "banner";
-    elements.warning.textContent = `${total.toLocaleString()} redaction instance${total === 1 ? "" : "s"} across your entire donation`;
+    elements.warning.textContent = `${total.toLocaleString()} redaction${total === 1 ? "" : "s"}`;
   }
   const table = document.createElement("table"); table.className = "bundle-redactions";
-  const caption = document.createElement("caption"); caption.textContent = "Redactions applied across all included sessions";
   const head = document.createElement("thead"), headers = document.createElement("tr");
   for (const text of ["Redaction", "Status", "Instances"]) {
     const th = document.createElement("th"); th.scope = "col"; th.textContent = text; headers.append(th);
   }
-  head.append(headers); table.append(caption, head);
+  head.append(headers); table.append(head);
   const body = document.createElement("tbody");
   for (const item of job.redactions || []) {
     const row = document.createElement("tr"), name = document.createElement("th"); name.scope = "row";
+    const heading = document.createElement("div"); heading.className = "category-heading";
     if (state.mode === "custom") {
-      const label = document.createElement("label"); label.append(redactionCheckbox(item), item.label); name.append(label);
-    } else name.textContent = item.label;
+      const input = redactionCheckbox(item); input.setAttribute("aria-label", `Redact ${item.label.toLocaleLowerCase()}`); heading.append(input);
+    }
+    const toggle = document.createElement("button"); toggle.className = "category-toggle";
+    toggle.textContent = item.label; toggle.setAttribute("aria-expanded", String(state.categoryKind === item.kind));
+    toggle.setAttribute("aria-controls", `matches-${item.kind}`);
+    const detailRow = document.createElement("tr"); setHidden(detailRow, state.categoryKind !== item.kind);
+    const cell = document.createElement("td"); cell.colSpan = 3;
+    const matches = document.createElement("div"); matches.className = "matches category-matches"; matches.id = `matches-${item.kind}`;
+    matches.setAttribute("role", "region"); matches.setAttribute("aria-label", `${item.label} across included sessions`); matches.tabIndex = 0;
+    cell.append(matches); detailRow.append(cell);
+    toggle.addEventListener("click", () => {
+      state.categoryKind = state.categoryKind === item.kind ? "" : item.kind;
+      renderOverview();
+      elements["bundle-redactions"].querySelector(`[aria-controls="matches-${item.kind}"]`)?.focus({ preventScroll: true });
+    });
+    heading.append(toggle); name.append(heading);
     const status = document.createElement("td"); status.textContent = !item.enabled ? "Off" : item.enabledCount < item.count ? "Some excluded" : "On";
     const count = document.createElement("td"); count.textContent = item.count > item.enabledCount ? `${item.enabledCount.toLocaleString()} of ${item.count.toLocaleString()}` : item.enabledCount.toLocaleString();
-    row.append(name, status, count); body.append(row);
+    row.append(name, status, count); body.append(row, detailRow);
+    if (state.categoryKind === item.kind) queueMicrotask(() => { if (matches.isConnected) void loadCategory(item, matches); });
   }
   if (state.mode === "custom" || job.customRedactionCount) {
-    const row = document.createElement("tr"), name = document.createElement("th"); name.scope = "row"; name.textContent = "Custom redactions (added per session)";
+    const row = document.createElement("tr"), name = document.createElement("th"); name.scope = "row"; name.textContent = "Custom redactions";
     const status = document.createElement("td"); status.textContent = state.mode === "custom" ? "Applied" : "Not applied";
     const count = document.createElement("td"); count.textContent = (job.customDetections || 0).toLocaleString();
     row.append(name, status, count); body.append(row);
   }
   table.append(body); elements["bundle-redactions"].append(table);
+  lockControls(state.busy);
 }
 
 function renderReview() {
   setHidden(elements["review-placeholder"], true); setHidden(elements["review-content"], false);
-  elements["session-inclusion"].textContent = state.chosen.has(state.activeId) ? "This session is included in your donation." : "This session is not included. Its matches do not count toward the donation totals. Check its box on the left to include it.";
   const count = state.preview.detectionCount + (state.preview.customDetectionCount || 0);
-  elements["session-redaction-summary"].textContent = `${count.toLocaleString()} redaction instance${count === 1 ? "" : "s"} in this session only. Messages are read-only.`;
-  setHidden(elements["match-scope"], state.mode !== "custom");
-  renderRedactions(); renderConversations(); renderMode(); updateDonateButton();
+  elements["session-redaction-summary"].textContent = `${state.chosen.has(state.activeId) ? "Included" : "Not included"} · ${count.toLocaleString()} redaction${count === 1 ? "" : "s"}`;
+  renderConversations(); renderMode(); updateDonateButton();
 }
 
 function clearCustomError() {
@@ -388,7 +408,7 @@ async function applyCustomRedaction() {
     state.preview = result.preview;
     state.review = { ...state.review, ...result.overview };
     state.customRedactionCount = result.preview.customRedactionCount || 0;
-    elements["custom-status"].textContent = result.count ? `Applied ${result.count} redaction${result.count === 1 ? "" : "s"}. Use Reset custom redactions for this session to undo.` : "No matches found. Try different text or a pattern.";
+    elements["custom-status"].textContent = result.count ? `Applied ${result.count} redaction${result.count === 1 ? "" : "s"}.` : "No matches found. Try different text or a pattern.";
     if (result.count) elements["custom-pattern"].value = "";
     renderOverview(); renderReview();
   } catch (error) {
@@ -406,7 +426,7 @@ async function resetCustomRedactions() {
     state.preview = result.preview; state.customRedactionCount = result.preview.customRedactionCount || 0;
     state.review = { ...state.review, ...result.overview };
     renderOverview(); renderReview();
-    elements["custom-status"].textContent = "Custom redactions reset for this session. Automatic rules are unchanged.";
+    elements["custom-status"].textContent = "Custom redactions reset.";
   } catch (error) { elements["custom-status"].textContent = `${error.message} Try resetting again.`; }
   finally { state.busy = false; lockControls(false); elements["reset-custom"].focus({ preventScroll: true }); }
 }
@@ -480,9 +500,10 @@ elements["close-app"].addEventListener("click", closeApp);
 elements["back-overview"].addEventListener("click", () => {
   state.activeId = ""; state.preview = null; state.previewRequest++;
   elements["session-viewer"].setAttribute("aria-busy", "false");
+  setHidden(elements["session-viewer"], true);
   elements["bundle-details"].open = true;
   setHidden(elements["review-content"], true); setHidden(elements["review-placeholder"], false); setHidden(elements["back-overview"], true);
-  elements["review-placeholder"].textContent = "No session open. Click any session title to view it.";
+  elements["review-placeholder"].textContent = "";
   highlightSession(); renderMode(); lockControls(state.busy);
   elements["review-heading"].focus({ preventScroll: true });
 });

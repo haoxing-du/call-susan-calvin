@@ -12,17 +12,17 @@
       <section class="intro">
         <p class="local-sticker">This is a local app running on your machine.</p>
         <h1>Share with <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin</a></h1>
-        <p>Choose which sessions to include and review the redactions across your donation. Data stays on this device until you consent and click Donate.</p>
-        <p class="research-note">Data is contributed to the <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a> for research on AI behavior. <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">Data policy</a></p>
+        <p>Donate AI sessions for research on AI behavior.</p>
+        <p class="research-note"><a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">Data policy</a></p>
       </section>
 
       <section id="loading" class="card centered"><p id="loading-status" role="status">Loading local sessions…</p><button id="retry-catalog" class="secondary hidden">Retry loading sessions</button></section>
       <section id="empty" class="card centered hidden"><h2>No sessions found</h2><p>Try restarting the command with a wider date range, such as <code>--days=90</code>.</p></section>
       <div id="workspace" class="workspace hidden">
         <section class="card controls">
-          <div class="step"><span>1</span><div><h2>Include sessions</h2><p>Check a box to include that session in the donation. Click a session title to view it without changing what is included.</p></div></div>
+          <div class="step"><span>1</span><div><h2>Include sessions</h2></div></div>
           <div class="selection-heading"><label><input id="select-all" type="checkbox" checked> Include all sessions</label><span id="selection-count"></span></div>
-          <label class="search-field">Find a session<input id="session-search" type="search" placeholder="Search titles, opening messages, or agents"></label>
+          <label class="search-field">Find a session<input id="session-search" type="search" placeholder="Title, opening message, or agent"></label>
           <div id="sessions" class="sessions"></div>
           <div id="session-pagination" class="pagination"><button id="sessions-prev" aria-label="Previous session page">←</button><span id="session-page"></span><button id="sessions-next" aria-label="Next session page">→</button></div>
           <label class="field"><span>Donation mode</span><select id="mode"><option value="standard">Standard redactions</option><option value="custom">Customize redactions</option><option value="unredacted">Unredacted</option></select></label>
@@ -31,47 +31,41 @@
         </section>
 
         <section id="review-panel" class="card review">
-          <div class="step"><span>2</span><div><h2 id="review-heading" tabindex="-1">Redactions across your donation</h2><p>These totals cover every included session. Automatic rules apply across the entire donation, regardless of which session you view.</p></div></div>
+          <div class="step"><span>2</span><div><h2 id="review-heading" tabindex="-1">Review redactions</h2></div></div>
           <p id="bundle-status" class="hint" role="status"></p>
           <div id="bundle-overview" class="hidden">
             <div id="warning"></div>
             <p id="redaction-summary" class="hint"></p>
-            <details id="bundle-details" open><summary>All redaction rules and counts</summary><div id="bundle-redactions"></div></details>
-            <p class="hint">Counts are instances replaced in the included transcripts. A rule with 0 matches is still active unless marked Off. Automated detection is not exhaustive.</p>
+            <details id="bundle-details" open><summary>Redactions across all included sessions</summary><div id="bundle-redactions"></div></details>
+            <p class="hint">Automatic redaction may miss private details. Review before donating.</p>
           </div>
           <button id="retry-preview" class="secondary hidden">Retry loading preview</button>
-          <section id="session-viewer" class="session-viewer">
-          <button id="back-overview" class="secondary hidden">Back to donation overview</button>
-          <h3>View individual sessions</h3>
-          <p class="hint">Click a session title on the left to view its transcript. Viewing a session does not include or exclude it from your donation.</p>
-          <div id="review-placeholder" class="placeholder">No session open. Click any session title to view it.</div>
+          <section id="session-viewer" class="session-viewer hidden">
+          <button id="back-overview" class="secondary hidden">Back to overview</button>
+          <div id="review-placeholder" class="placeholder"></div>
           <div id="review-content" class="hidden">
-            <p id="session-inclusion" class="hint"></p>
             <p id="session-redaction-summary" class="hint"></p>
-            <p id="match-scope" class="hint hidden">The values below were found in this session. Excluding a value from redaction leaves that same value unredacted wherever it appears across your donation. Enable its rule in the overview to adjust individual values.</p>
-            <div id="redactions"></div>
             <section id="custom-redaction" class="custom hidden">
-              <h3>Add a redaction to this session</h3>
+              <h3>Redact text in this session</h3>
               <div class="custom-fields">
                 <label>Redaction type<select id="custom-mode"><option value="text">Plain text</option><option value="regex">Regular expression</option></select></label>
                 <label>Text or pattern to remove<input id="custom-pattern" maxlength="200" placeholder="Enter text or a regular expression" aria-describedby="custom-error"></label>
-                <button id="apply-custom" class="secondary">Apply</button>
+                <button id="apply-custom" class="secondary">Redact matches</button>
               </div>
-              <p class="hint">Matches are replaced with [REDACTED CUSTOM]. Patterns stay saved for each session while this local app is running. In this mode, they are reapplied after automatic rules; review the result whenever you change those rules.</p>
-              <button id="reset-custom" class="secondary">Reset custom redactions for this session</button>
+              <p class="hint">Replaces matches with [REDACTED CUSTOM]. Saved for this session until the app stops.</p>
+              <button id="reset-custom" class="secondary">Reset this session’s custom redactions</button>
               <p id="custom-error" class="error"></p>
               <p id="custom-status" class="hint" role="status"></p>
             </section>
-            <p class="hint">Message timestamps are included when available.</p>
             <div class="pagination review-navigation"><button id="review-prev">Previous session</button><label>Session <input id="review-position" type="number" min="1" value="1" aria-label="Session number"></label><span id="review-total"></span><button id="review-next">Next session</button></div>
             <div id="conversation-preview" class="conversations"></div>
             <div class="pagination"><button id="messages-prev" aria-label="Previous messages">←</button><span id="message-page"></span><button id="messages-next" aria-label="Next messages">→</button></div>
-            <p id="message-validation" class="error hidden" aria-live="polite">This session contains an empty message. Deselect the entire session in step 1 to continue.</p>
+            <p id="message-validation" class="error hidden" aria-live="polite">This session contains an empty message. Uncheck this session to continue.</p>
           </div>
           </section>
-            <div class="step consent-heading"><span>3</span><div><h2>Confirm donation</h2><p>The reviewed data is encrypted on this device before upload.</p></div></div>
+            <div class="step consent-heading"><span>3</span><div><h2>Confirm donation</h2><p>Data is encrypted on this device before upload.</p></div></div>
             <label id="unredacted-consent" class="consent danger hidden"><input id="unredacted-ack" type="checkbox"> I understand that automatic redaction is disabled and private credentials, code, URLs, paths, and personal details may be transmitted.</label>
-            <label class="consent"><input id="consent" type="checkbox"><span>I consent to transmit this reviewed data to the <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a> for research under the <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">data policy</a>.</span></label>
+            <label class="consent"><input id="consent" type="checkbox"><span>I consent to donate these sessions to the <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a> for research under the <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">data policy</a>.</span></label>
             <button id="donate" class="donate" disabled>Donate reviewed data</button>
           <p id="progress" class="hint" role="status"></p>
           <p id="error" class="error" aria-live="assertive"></p>
@@ -80,7 +74,7 @@
 
       <section id="success" class="card success hidden">
         <h2 id="success-heading" tabindex="-1">Donation received</h2>
-        <p id="success-description">The data was encrypted on this device before upload. A receipt saved on this device lets you delete the donation later.</p>
+        <p id="success-description">A receipt saved on this device lets you delete the donation later.</p>
         <div class="reference"><span>Donation reference</span><code id="donation-id"></code></div>
         <button id="close-app" class="primary">Close window and stop local server</button>
         <p id="close-status" class="hint" role="status"></p>

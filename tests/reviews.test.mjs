@@ -163,3 +163,47 @@ test("the donation overview aggregates occurrences across every included session
     assert.ok(current.redactions.every(r => !r.enabled && r.enabledCount === 0));
   } finally { await reviews.close(); }
 });
+
+test("category strings combine all included sessions without truncation or leaking into summary polling", async () => {
+  const longValue = "long-".repeat(90) + "@example.com";
+  const reviews = new Reviews(catalog, { preview: async (catalog, ids, options) => {
+    const result = await preview(catalog, ids);
+    const matches = [
+      { id: "shared", value: "shared@example.com", count: 2, enabled: !options.disabledMatches.includes("shared") },
+      { id: ids[0], value: ids[0] === "0" ? longValue : `${ids[0]}@example.com`, count: 1, enabled: true },
+    ];
+    if (options.disabledKinds.includes("email")) matches.forEach(m => { m.enabled = false; });
+    result.redactions = options.unredacted ? [] : [{ kind: "email", label: "Email addresses", count: 3, enabledCount: matches.reduce((n, m) => n + (m.enabled ? m.count : 0), 0), matches }];
+    result.detectionCount = result.redactions[0]?.enabledCount || 0;
+    return result;
+  } });
+  async function prepare(ids, options = {}) {
+    const result = await reviews.create(ids, { mode: "custom", ...options });
+    const job = reviews.get(result.id); await job.task; return job;
+  }
+  try {
+    let job = await prepare([...catalog.index.keys()]);
+    let category = await reviews.matches(job, "email");
+    assert.equal(category.matches.length, 502);
+    assert.equal(category.matches[0].value, "shared@example.com");
+    assert.equal(category.matches[0].count, 1002);
+    assert.equal(category.matches.find(m => m.id === "0").value, longValue);
+    assert.equal(category.matches.reduce((n, m) => n + m.count, 0), category.count);
+    assert.ok(!JSON.stringify(reviews.summary(job)).includes("shared@example.com"));
+    assert.deepEqual((await reviews.matches(job, "phone")).matches, []);
+    await assert.rejects(reviews.matches(job, "unknown"), /category/);
+    await assert.rejects(reviews.matches(job, "email", () => true), /Review changed/);
+    job = await prepare(["0", "1"], { disabledMatches: ["shared"] });
+    category = await reviews.matches(job, "email");
+    assert.equal(category.matches.length, 3);
+    assert.equal(category.matches[0].count, 4);
+    assert.equal(category.matches[0].enabled, false);
+    assert.equal(category.enabledCount, 2);
+    job = await prepare(["1"], { disabledKinds: ["email"] });
+    category = await reviews.matches(job, "email");
+    assert.equal(category.matches.length, 2);
+    assert.ok(category.matches.every(m => !m.enabled));
+    job = await prepare(["1"], { mode: "unredacted" });
+    assert.deepEqual((await reviews.matches(job, "email")).matches, []);
+  } finally { await reviews.close(); }
+});

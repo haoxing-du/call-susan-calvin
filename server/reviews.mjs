@@ -102,6 +102,25 @@ export class Reviews {
     if (!Number.isInteger(index) || index < 0 || index >= job.sessions.length) throw new Error("Session not found.");
     return { ...JSON.parse(await fs.readFile(path.join(job.folder, `${index}.json`), "utf8")), customRedactionCount: this.customRedactionCount() };
   }
+  async matches(job, kind, cancelled = () => false) {
+    if (job.status !== "ready" || job.redacting) throw new Error("Wait for the preview to finish, then retry.");
+    const category = job.redactions.find(item => item.kind === kind);
+    if (!category) throw new Error("Choose an available redaction category.");
+    // Read one snapshot at a time, only when a category is opened. Neither the
+    // polling response nor the persistent job retains the donation's strings.
+    const matches = new Map();
+    for (let index = 0; category.count && index < job.sessions.length; index++) {
+      if (cancelled() || job.cancelled) throw new Error("Review changed. Reopen the category.");
+      const preview = await this.read(job, index);
+      const item = preview.redactions.find(item => item.kind === kind);
+      for (const match of item?.matches || []) {
+        const existing = matches.get(match.id);
+        if (existing) existing.count += match.count;
+        else matches.set(match.id, { id: match.id, value: match.value, count: match.count, enabled: match.enabled });
+      }
+    }
+    return { ...category, matches: [...matches.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value)) };
+  }
   async writeSession(job, index, preview) {
     const previous = await this.read(job, index);
     const session = preview.sessions[0];

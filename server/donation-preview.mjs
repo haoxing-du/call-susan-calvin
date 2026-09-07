@@ -10,7 +10,7 @@ function inventory(detections) {
     if (detection.enabled) item.enabledCount++;
     const existing = item.matches.get(detection.value) || {
       id: detection.matchId,
-      value: detection.value.length > 300 ? `${detection.value.slice(0, 300)}…` : detection.value,
+      value: detection.value,
       count: 0,
       enabled: detection.enabled,
       contexts: [],

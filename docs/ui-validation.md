@@ -1,3 +1,16 @@
+# Donation-wide redaction overview
+
+Validated locally on 2026-09-06 with synthetic data. This supersedes the prior default of opening the first session automatically.
+
+- The initial screen shows all 10 standard rule types and their total instance counts across the included donation, including active rules with zero matches. Custom replacements have a separate row. The regex rules and date-window behavior are unchanged.
+- Viewing Research update (zero local matches) left the global total at 2. A direct session click retained `scrollY=0` and focus on the session button. The total stays visible while the table collapses; Back to donation overview restores the complete table without changing inclusion.
+- Excluding Demo build failure reduced the donation total from 2 to 0; reincluding it restored 2. Global email-rule disablement produced Off / 0 of 1 and a total of 1. Excluding the individual email value produced Some excluded / 0 of 1. Adding a custom redaction immediately added 1 to the custom row and the global total.
+- Custom global rule controls work without any session open. Individual value controls are labeled and explicitly describe their scope across included sessions. Category re-enablement clears that category's value exclusions.
+- The new regression test aggregates 1,002 occurrences across 501 included sessions, verifies bounded rule metadata, active zero-match rules, custom add/reset, inclusion changes and unredacted mode. `npm run check`: all 35 tests and syntax checks for 21 files pass.
+- The overview and custom controls were inspected at 1280 x 900 and 320 x 900. At 320 px the table stayed inside the viewport; compact column headings avoid broken words. Temporary viewport overrides were reset.
+
+Not verified: actual screen-reader speech, mobile Safari focus zoom, RTL, forced colors, true 200% browser zoom, production donation transmission, and a new 100x volume benchmark. The existing large-review tests and bounded session/message rendering remain in place.
+
 # Interface fixes in 0.2.3
 
 Validated locally on 2026-09-06 with synthetic data only. This covers all eight HIGH and MEDIUM findings from the whole-package interface review of 0.2.2. The existing paper theme, compact desktop typography, and bounded pagination remain.

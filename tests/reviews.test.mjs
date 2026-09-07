@@ -121,3 +121,45 @@ test("replacing an automatic preview cancels pending preparation and removes its
     assert.equal(job.cancelled, undefined, "uploading snapshots cannot be cancelled by preview changes");
   } finally { await reviews.close(); }
 });
+
+test("the donation overview aggregates occurrences across every included session with bounded rule totals", async () => {
+  const reviews = new Reviews(catalog, { preview: async (catalog, ids, options) => {
+    const result = await preview(catalog, ids);
+    const enabled = !options.unredacted && !options.disabledKinds.includes("email");
+    result.redactions = options.unredacted ? [] : [{ kind: "email", label: "Email addresses", count: 2, enabledCount: enabled ? 2 : 0 }];
+    result.detectionCount = enabled ? 2 : 0;
+    return result;
+  } });
+  try {
+    let result = await reviews.create([...catalog.index.keys()], { mode: "custom" });
+    let job = reviews.get(result.id); await job.task;
+    const summary = reviews.summary(job);
+    assert.equal(summary.total, 501);
+    assert.equal(summary.detections, 1002, "instances, not distinct values or sessions");
+    assert.equal(summary.redactions.find(r => r.kind === "email").enabledCount, 1002);
+    assert.equal(summary.redactions.find(r => r.kind === "phone").enabled, true);
+    assert.equal(summary.redactions.find(r => r.kind === "phone").count, 0, "zero-match rules remain visible and active");
+    assert.ok(JSON.stringify(summary.redactions).length < 2000, "aggregate metadata stays bounded with a large catalog");
+    assert.ok(summary.redactions.every(r => !('matches' in r)), "the overview needs counts, not every private matched value");
+    let changed = await reviews.redact(job, 0, { pattern: "complete", type: "text" });
+    assert.equal(changed.overview.customDetections, 1);
+    changed = await reviews.redact(job, 1, { pattern: "complete", type: "text" });
+    assert.equal(changed.overview.customDetections, 2);
+    const reset = await reviews.resetCustom(job, 0);
+    assert.equal(reset.overview.customDetections, 1);
+    assert.equal(reset.overview.detections, 1002, "resetting custom redactions leaves automatic totals intact");
+    result = await reviews.create(["1", "2"], { mode: "custom", disabledKinds: ["email"] });
+    job = reviews.get(result.id); await job.task;
+    let current = reviews.summary(job);
+    assert.deepEqual(current.redactions.find(r => r.kind === "email"), { kind: "email", label: "Email addresses", count: 4, enabledCount: 0, enabled: false });
+    assert.equal(current.customDetections, 1, "custom counts are recalculated only for included sessions");
+    result = await reviews.create(["2"], { mode: "custom" });
+    job = reviews.get(result.id); await job.task; current = reviews.summary(job);
+    assert.equal(current.detections, 2);
+    assert.equal(current.customDetections, 0, "excluded sessions never contribute redactions");
+    result = await reviews.create(["1", "2"], { mode: "unredacted" });
+    job = reviews.get(result.id); await job.task; current = reviews.summary(job);
+    assert.equal(current.detections + current.customDetections, 0);
+    assert.ok(current.redactions.every(r => !r.enabled && r.enabledCount === 0));
+  } finally { await reviews.close(); }
+});

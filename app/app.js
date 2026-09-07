@@ -2,7 +2,7 @@ import { splitCodexContext } from "./session-context.js";
 
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((element) => [element.id, element]));
 const state = {
-  catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Set(),
+  catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Map(),
   acceptedId: "", busy: false, review: null, sessionPage: 0, reviewIndex: 0, messagePage: 0,
   activeId: "", filtered: [], revision: 0, building: false, updating: false, previewRequest: 0, timer: null, customRedactionCount: 0, redactionFocus: null,
 };
@@ -16,7 +16,7 @@ function clearReview() {
   setHidden(elements["review-content"], true);
   elements["custom-status"].textContent = "";
   clearCustomError();
-  elements["review-placeholder"].textContent = "Loading session…";
+  elements["review-placeholder"].textContent = state.activeId ? "Loading session…" : "No session open. Click any session title to view it.";
 }
 function invalidateConsent() {
   elements.consent.checked = false;
@@ -24,10 +24,10 @@ function invalidateConsent() {
   updateDonateButton();
 }
 function updateDonateButton() {
-  const messages = state.preview?.sessions.reduce((sum, session) => sum + session.messages.length, 0) || 0;
+  const messages = state.review?.messages || 0;
   const hasEmptyMessage = (state.preview?.sessions.some((session) => session.messages.some((message) => !message.text.trim())) || false);
   setHidden(elements["message-validation"], !hasEmptyMessage);
-  elements.donate.disabled = state.busy || state.updating || state.review?.status !== "ready" || !state.chosen.size || !messages || hasEmptyMessage || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
+  elements.donate.disabled = state.busy || state.updating || state.review?.status !== "ready" || !state.chosen.size || !messages || (hasEmptyMessage && state.chosen.has(state.activeId)) || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
 }
 
 function renderSessions() {
@@ -46,7 +46,7 @@ function renderSessions() {
     preview.textContent = session.firstUserMessage || "No user message available"; preview.title = preview.textContent;
     const small = document.createElement("small"); small.textContent = `${session.title ? `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()} · ` : ""}${session.messageCount} messages · ${formatBytes(session.sizeBytes)}`;
     copy.append(strong, preview, small);
-    copy.addEventListener("click", () => void showSession(session.id));
+    copy.addEventListener("click", () => { elements["bundle-details"].open = false; void showSession(session.id); });
     row.append(input, copy); elements.sessions.append(row);
   }
   if (!state.filtered.length) {
@@ -67,7 +67,7 @@ function highlightSession() {
 }
 
 function renderSelectionCount() {
-  elements["selection-count"].textContent = `${state.chosen.size} of ${state.catalog.length} selected`;
+  elements["selection-count"].textContent = `${state.chosen.size} of ${state.catalog.length} included`;
   elements["select-all"].checked = state.chosen.size === state.catalog.length && state.catalog.length > 0;
   elements["select-all"].indeterminate = state.chosen.size > 0 && state.chosen.size < state.catalog.length;
 }
@@ -98,8 +98,9 @@ function lockControls(locked) {
   for (const control of elements.workspace.querySelectorAll("input, select, button")) control.disabled = locked;
   if (!locked) {
     for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating || !state.preview;
-    for (const control of elements.redactions.querySelectorAll("input")) control.disabled = state.updating || !state.preview;
-    elements.consent.disabled = state.updating || !state.preview || !state.chosen.size || state.review?.status !== "ready";
+    for (const control of elements.redactions.querySelectorAll("input")) control.disabled = state.updating || !state.preview || state.disabledKinds.has(control.dataset.kind);
+    for (const control of elements["bundle-redactions"].querySelectorAll("input")) control.disabled = state.updating || state.review?.status !== "ready";
+    elements.consent.disabled = state.updating || !state.chosen.size || state.review?.status !== "ready";
     elements["unredacted-ack"].disabled = elements.consent.disabled;
     renderSelectionCount(); updateDonateButton(); updateNavigation();
   }
@@ -117,15 +118,16 @@ function updateNavigation() {
   elements["review-total"].textContent = `of ${state.catalog.length} sessions`;
 }
 function previewOptions() {
-  return { mode: state.mode, disabledKinds: [...state.disabledKinds], disabledMatches: [...state.disabledMatches] };
+  return { mode: state.mode, disabledKinds: [...state.disabledKinds], disabledMatches: [...state.disabledMatches.keys()] };
 }
 async function showSession(id) {
   if (state.busy || !id) return;
   state.activeId = id;
+  setHidden(elements["back-overview"], false);
   const request = ++state.previewRequest, revision = state.revision;
   state.preview = null;
   // Keep the existing panel height and keyboard focus while the next session loads.
-  elements["review-panel"].setAttribute("aria-busy", "true");
+  elements["session-viewer"].setAttribute("aria-busy", "true");
   elements["review-placeholder"].textContent = "Loading session…";
   elements["custom-status"].textContent = "";
   clearCustomError();
@@ -140,24 +142,26 @@ async function showSession(id) {
     state.reviewIndex = index; state.messagePage = 0; state.preview = preview;
     state.customRedactionCount = preview.customRedactionCount || 0;
     renderReview(); lockControls(state.busy);
-    if (!state.updating && state.redactionFocus) {
-      if (document.activeElement === document.body && state.activeId === state.redactionFocus.sessionId) {
-        const control = [...elements.redactions.querySelectorAll("input")].find(input => input.dataset.redactionKey === state.redactionFocus.key);
-        if (control) {
-          control.closest("details").open = true;
-          control.focus({ preventScroll: true });
-        }
-      }
-      state.redactionFocus = null;
-    }
+    restoreRedactionFocus();
   } catch (error) {
     if (request !== state.previewRequest || revision !== state.revision) return;
     setHidden(elements["review-content"], true); setHidden(elements["review-placeholder"], false);
     elements["review-placeholder"].textContent = `${error.message} Retry loading the preview, or choose another session.`;
     setHidden(elements["retry-preview"], false);
   } finally {
-    if (request === state.previewRequest) elements["review-panel"].setAttribute("aria-busy", "false");
+    if (request === state.previewRequest) elements["session-viewer"].setAttribute("aria-busy", "false");
   }
+}
+function restoreRedactionFocus() {
+  if (state.updating || !state.redactionFocus) return;
+  if (document.activeElement === document.body && (state.redactionFocus.key.startsWith("kind:") || state.activeId === state.redactionFocus.sessionId)) {
+    const control = [...elements["review-panel"].querySelectorAll("input[data-redaction-key]")].find(input => input.dataset.redactionKey === state.redactionFocus.key);
+    if (control) {
+      const details = control.closest("details"); if (details) details.open = true;
+      control.focus({ preventScroll: true });
+    }
+  }
+  state.redactionFocus = null;
 }
 function navigateReview(index) {
   if (state.busy || !Number.isInteger(index) || index < 0 || index >= state.catalog.length) return updateNavigation();
@@ -170,9 +174,9 @@ function scheduleReview() {
   if (state.busy) return;
   clearTimeout(state.timer);
   state.revision++; state.updating = true; state.review = null;
-  clearReview(); invalidateConsent(); renderMode(); lockControls(false);
+  clearReview(); invalidateConsent(); renderMode(); renderOverview(); lockControls(false);
   setHidden(elements["retry-preview"], true); setError();
-  elements["progress"].textContent = state.chosen.size ? "Updating selected sessions…" : "No sessions selected for donation.";
+  elements["progress"].textContent = state.chosen.size ? "Updating included sessions…" : "No sessions included in donation.";
   state.timer = setTimeout(() => void buildPreview(), 200);
 }
 
@@ -199,7 +203,7 @@ async function buildPreview() {
       if (!ids.length) { state.updating = false; lockControls(false); break; }
       let job = await api("/api/reviews", "POST", { sessionIds: ids, ...previewOptions() });
       while (job.status === "preparing" && revision === state.revision) {
-        elements["progress"].textContent = `Preparing ${job.processed} of ${job.total} selected sessions…`;
+        elements["progress"].textContent = `Preparing ${job.processed} of ${job.total} included sessions…`;
         await new Promise((resolve) => setTimeout(resolve, 300));
         if (revision === state.revision) job = await api(`/api/reviews/${job.id}`);
       }
@@ -209,11 +213,15 @@ async function buildPreview() {
       }
       if (job.status !== "ready") throw new Error(job.error || "Could not prepare the review.");
       state.review = job; state.updating = false;
+      state.customRedactionCount = job.customRedactionCount || 0;
+      renderOverview(); renderMode();
       elements["progress"].textContent = ""; setError();
       await showSession(state.activeId);
+      restoreRedactionFocus();
     } while (revision !== state.revision);
   } catch (error) {
     setError(error.message); state.updating = false;
+    renderOverview();
     setHidden(elements["retry-preview"], false);
   } finally {
     state.building = false; lockControls(state.busy);
@@ -224,16 +232,16 @@ async function buildPreview() {
 function redactionCheckbox(item, match = null) {
   const input = document.createElement("input"); input.type = "checkbox"; input.checked = match ? match.enabled : item.enabled;
   input.dataset.redactionKey = match ? `match:${match.id}` : `kind:${item.kind}`;
+  input.dataset.kind = item.kind;
   input.addEventListener("click", (event) => event.stopPropagation());
   input.addEventListener("change", () => {
     state.redactionFocus = { key: input.dataset.redactionKey, sessionId: state.activeId };
     if (match && input.checked) {
-      if (state.disabledKinds.delete(item.kind)) for (const other of item.matches) if (other.id !== match.id) state.disabledMatches.add(other.id);
       state.disabledMatches.delete(match.id);
-    } else if (match) state.disabledMatches.add(match.id);
+    } else if (match) state.disabledMatches.set(match.id, item.kind);
     else if (input.checked) {
       state.disabledKinds.delete(item.kind);
-      for (const existing of item.matches) state.disabledMatches.delete(existing.id);
+      for (const [id, kind] of state.disabledMatches) if (kind === item.kind) state.disabledMatches.delete(id);
     } else state.disabledKinds.add(item.kind);
     scheduleReview();
   });
@@ -251,10 +259,6 @@ function renderRedactions() {
     const count = document.createElement("b"); count.textContent = `${item.enabledCount}/${item.count}`;
     summary.append(label, count); details.append(summary);
     const matches = document.createElement("div"); matches.className = "matches";
-    if (state.mode === "custom") {
-      const category = document.createElement("label"); category.className = "redaction-category";
-      category.append(redactionCheckbox(item), `Redact all ${item.label.toLowerCase()}`); matches.append(category);
-    }
     for (const match of item.matches) {
       const row = document.createElement(state.mode === "custom" ? "label" : "div"); row.className = "match";
       if (state.mode === "custom") row.append(redactionCheckbox(item, match), " ");
@@ -312,20 +316,55 @@ function renderConversations() {
   elements["messages-next"].disabled = (state.messagePage + 1) * 40 >= total;
 }
 
-function renderReview() {
-  setHidden(elements["review-placeholder"], true); setHidden(elements["review-content"], false);
-  const messages = state.review?.messages ?? state.catalog.reduce((sum, session) => sum + (state.chosen.has(session.id) ? session.messageCount : 0), 0);
-  elements["session-inclusion"].textContent = state.chosen.has(state.activeId) ? "Included in donation" : "Not included in donation. Check its box on the left to include it.";
+function renderOverview() {
+  const ready = !state.updating && state.review?.status === "ready";
+  setHidden(elements["bundle-overview"], !ready);
+  elements["bundle-redactions"].replaceChildren();
+  elements["bundle-status"].textContent = !state.chosen.size ? "No sessions included. Check a session box to include it in your donation."
+    : !ready ? state.updating ? "Calculating redactions across all included sessions…" : "The donation overview could not be prepared. Retry loading the preview." : "";
+  if (!ready) return;
+  const job = state.review;
+  const total = job.detections + (job.customDetections || 0);
+  elements["redaction-summary"].textContent = `${job.total.toLocaleString()} included sessions · ${job.messages.toLocaleString()} messages. Viewing or searching sessions does not change these totals.`;
   if (state.mode === "unredacted") {
     elements.warning.className = "banner danger";
-    elements.warning.textContent = "No automatic redactions are active. Credentials, personal details, code, URLs, and paths may be present.";
-    elements["redaction-summary"].textContent = `${state.chosen.size} sessions · ${messages.toLocaleString()} messages selected.`;
+    elements.warning.textContent = "No redactions are applied to this donation. Credentials, personal details, code, URLs, and paths may be present.";
   } else {
     elements.warning.className = "banner";
-    elements.warning.textContent = `${state.preview.detectionCount} likely sensitive items removed in this session`;
-    elements["redaction-summary"].textContent = `${state.chosen.size} sessions · ${messages.toLocaleString()} messages selected. Showing one session below.`;
-    elements["redaction-summary"].className = "hint";
+    elements.warning.textContent = `${total.toLocaleString()} redaction instance${total === 1 ? "" : "s"} across your entire donation`;
   }
+  const table = document.createElement("table"); table.className = "bundle-redactions";
+  const caption = document.createElement("caption"); caption.textContent = "Redactions applied across all included sessions";
+  const head = document.createElement("thead"), headers = document.createElement("tr");
+  for (const text of ["Redaction", "Status", "Instances"]) {
+    const th = document.createElement("th"); th.scope = "col"; th.textContent = text; headers.append(th);
+  }
+  head.append(headers); table.append(caption, head);
+  const body = document.createElement("tbody");
+  for (const item of job.redactions || []) {
+    const row = document.createElement("tr"), name = document.createElement("th"); name.scope = "row";
+    if (state.mode === "custom") {
+      const label = document.createElement("label"); label.append(redactionCheckbox(item), item.label); name.append(label);
+    } else name.textContent = item.label;
+    const status = document.createElement("td"); status.textContent = !item.enabled ? "Off" : item.enabledCount < item.count ? "Some excluded" : "On";
+    const count = document.createElement("td"); count.textContent = item.count > item.enabledCount ? `${item.enabledCount.toLocaleString()} of ${item.count.toLocaleString()}` : item.enabledCount.toLocaleString();
+    row.append(name, status, count); body.append(row);
+  }
+  if (state.mode === "custom" || job.customRedactionCount) {
+    const row = document.createElement("tr"), name = document.createElement("th"); name.scope = "row"; name.textContent = "Custom redactions (added per session)";
+    const status = document.createElement("td"); status.textContent = state.mode === "custom" ? "Applied" : "Not applied";
+    const count = document.createElement("td"); count.textContent = (job.customDetections || 0).toLocaleString();
+    row.append(name, status, count); body.append(row);
+  }
+  table.append(body); elements["bundle-redactions"].append(table);
+}
+
+function renderReview() {
+  setHidden(elements["review-placeholder"], true); setHidden(elements["review-content"], false);
+  elements["session-inclusion"].textContent = state.chosen.has(state.activeId) ? "This session is included in your donation." : "This session is not included. Its matches do not count toward the donation totals. Check its box on the left to include it.";
+  const count = state.preview.detectionCount + (state.preview.customDetectionCount || 0);
+  elements["session-redaction-summary"].textContent = `${count.toLocaleString()} redaction instance${count === 1 ? "" : "s"} in this session only. Messages are read-only.`;
+  setHidden(elements["match-scope"], state.mode !== "custom");
   renderRedactions(); renderConversations(); renderMode(); updateDonateButton();
 }
 
@@ -347,10 +386,11 @@ async function applyCustomRedaction() {
   try {
     const result = await api(`/api/reviews/${state.review.id}/sessions/${state.reviewIndex}`, "POST", { pattern, type: elements["custom-mode"].value });
     state.preview = result.preview;
+    state.review = { ...state.review, ...result.overview };
     state.customRedactionCount = result.preview.customRedactionCount || 0;
     elements["custom-status"].textContent = result.count ? `Applied ${result.count} redaction${result.count === 1 ? "" : "s"}. Use Reset custom redactions for this session to undo.` : "No matches found. Try different text or a pattern.";
     if (result.count) elements["custom-pattern"].value = "";
-    renderConversations(); renderMode();
+    renderOverview(); renderReview();
   } catch (error) {
     elements["custom-error"].textContent = `${error.message} Check the text or pattern and try again.`;
     elements["custom-pattern"].setAttribute("aria-invalid", "true");
@@ -364,7 +404,8 @@ async function resetCustomRedactions() {
   try {
     const result = await api(`/api/reviews/${state.review.id}/sessions/${state.reviewIndex}`, "DELETE");
     state.preview = result.preview; state.customRedactionCount = result.preview.customRedactionCount || 0;
-    renderReview();
+    state.review = { ...state.review, ...result.overview };
+    renderOverview(); renderReview();
     elements["custom-status"].textContent = "Custom redactions reset for this session. Automatic rules are unchanged.";
   } catch (error) { elements["custom-status"].textContent = `${error.message} Try resetting again.`; }
   finally { state.busy = false; lockControls(false); elements["reset-custom"].focus({ preventScroll: true }); }
@@ -436,6 +477,15 @@ elements["review-position"].addEventListener("change", () => navigateReview(Numb
 elements["messages-prev"].addEventListener("click", () => { state.messagePage--; renderConversations(); });
 elements["messages-next"].addEventListener("click", () => { state.messagePage++; renderConversations(); });
 elements["close-app"].addEventListener("click", closeApp);
+elements["back-overview"].addEventListener("click", () => {
+  state.activeId = ""; state.preview = null; state.previewRequest++;
+  elements["session-viewer"].setAttribute("aria-busy", "false");
+  elements["bundle-details"].open = true;
+  setHidden(elements["review-content"], true); setHidden(elements["review-placeholder"], false); setHidden(elements["back-overview"], true);
+  elements["review-placeholder"].textContent = "No session open. Click any session title to view it.";
+  highlightSession(); renderMode(); lockControls(state.busy);
+  elements["review-heading"].focus({ preventScroll: true });
+});
 elements["reset-custom"].addEventListener("click", resetCustomRedactions);
 elements["custom-pattern"].addEventListener("input", clearCustomError);
 elements["retry-preview"].addEventListener("click", scheduleReview);
@@ -458,7 +508,7 @@ async function loadCatalog() {
       if (retrying) { elements.empty.tabIndex = -1; elements.empty.focus(); }
       return;
     }
-    state.filtered = state.catalog; state.activeId = state.catalog[0].id;
+    state.filtered = state.catalog; state.activeId = "";
     setHidden(elements.workspace, false); renderSessions(); renderMode(); scheduleReview();
     if (retrying) elements["session-search"].focus();
   } catch (error) {

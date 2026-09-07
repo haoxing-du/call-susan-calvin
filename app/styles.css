@@ -62,7 +62,20 @@ p { margin: 0 0 12px; }
 .redactions details, .conversation { border-bottom: 1px solid var(--line); }
 .redactions details:last-child, .conversation:last-child { border-bottom: 0; }
 .redactions summary { padding: 10px 12px; font-size: 13px; }
-.redaction-category { display: flex; align-items: baseline; gap: 8px; margin: 8px 0; font-size: 13px; }
+.bundle-redactions { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.bundle-redactions caption { text-align: left; font-weight: 600; margin-bottom: 8px; }
+.bundle-redactions th, .bundle-redactions td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; overflow-wrap: anywhere; }
+.bundle-redactions thead { font-size: 12px; }
+.bundle-redactions thead th:first-child { width: 45%; }
+.bundle-redactions thead th:nth-child(2) { width: 25%; }
+.bundle-redactions thead th:last-child { width: 30%; }
+.bundle-redactions tbody th { font-weight: 400; }
+.bundle-redactions th:last-child, .bundle-redactions td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.bundle-redactions label { display: flex; align-items: baseline; gap: 8px; }
+.session-viewer { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+.session-viewer .placeholder { padding: 12px 0; }
+#bundle-details > summary { padding: 8px 0; font-size: 13px; font-weight: 600; }
+#back-overview { margin-bottom: 16px; }
 .redactions summary b { float: right; margin-left: 8px; font-weight: 400; }
 .redactions > .hint { margin: 12px; }
 .matches { padding: 0 12px 8px; }

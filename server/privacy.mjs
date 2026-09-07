@@ -15,6 +15,14 @@ const LABELED_CREDENTIAL = /\b(?:password|passwd|pwd|secret|token|api[_ -]?key)\
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const HOME_USER = /(\/Users\/|\/home\/)([^/\s]+)/g;
 
+export const REDACTION_KINDS = [
+  ["credential", "Labeled credentials"],
+  ...SECRET_PATTERNS.map(([kind, label]) => [kind, label]),
+  ...PII_PATTERNS.map(([kind, label]) => [kind, label]),
+  ["email", "Email addresses"],
+  ["home-user", "Home-directory usernames"],
+].map(([kind, label]) => ({ kind, label }));
+
 function matchId(kind, value) {
   const input = `${kind}\0${value}`;
   return [0x811c9dc5, 0x9e3779b9, 0x85ebca6b].map((seed) => {
@@ -80,4 +88,3 @@ export function redactText(input, { disabledKinds = [], disabledMatches = [] } =
   for (const [marker, value] of replacements) text = text.replaceAll(marker, value);
   return { text, detections };
 }
-

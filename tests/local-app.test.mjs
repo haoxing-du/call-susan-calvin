@@ -117,3 +117,55 @@ test("an obsolete local preview can be cancelled and replaced without transmitti
     assert.equal((await call(`/api/reviews/${latest.id}/donate`, "POST", {})).status, 400);
   } finally { await new Promise(resolve => local.server.close(resolve)); }
 });
+
+test("custom redactions survive selection, mode and rule changes until a per-session reset", async () => {
+  const local = await startLocalApp({ port: 0, demo: true });
+  const call = async (route, method = "GET", body) => {
+    const response = await fetch(`${local.url}${route}`, { method, headers: { origin: local.url, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    assert.ok(response.ok, await response.clone().text());
+    return response.json();
+  };
+  async function prepare(sessionIds, mode = "custom", extras = {}) {
+    let job = await call("/api/reviews", "POST", { sessionIds, mode, ...extras });
+    while (job.status === "preparing") job = await call(`/api/reviews/${job.id}`);
+    assert.equal(job.status, "ready", job.error);
+    return job;
+  }
+  try {
+    const catalog = await call("/api/catalog");
+    const claude = catalog.sessions.find(s => s.agent === "claude").id;
+    const cowork = catalog.sessions.find(s => s.agent === "cowork").id;
+    let job = await prepare([claude, cowork]);
+    const first = await call(`/api/reviews/${job.id}/sessions/0`, "POST", { pattern: "configuration mismatch", type: "text" });
+    const second = await call(`/api/reviews/${job.id}/sessions/1`, "POST", { pattern: "research", type: "text" });
+    assert.equal(first.count, 1);
+    assert.match(second.preview.sessions[0].summary, /\[REDACTED CUSTOM\]/);
+    job = await prepare([claude]);
+    assert.deepEqual((await call(`/api/reviews/${job.id}/sessions/0`)).sessions, first.preview.sessions);
+    const excluded = await call("/api/donation-preview", "POST", { sessionIds: [cowork], mode: "custom" });
+    assert.deepEqual(excluded.sessions, second.preview.sessions, "excluded sessions retain their saved redactions");
+    for (const mode of ["standard", "unredacted"]) {
+      job = await prepare([claude], mode);
+      const plain = await call(`/api/reviews/${job.id}/sessions/0`);
+      assert.match(plain.sessions[0].messages[1].text, /configuration mismatch/);
+      assert.equal(plain.customRedactionCount, 2, "other modes suspend custom patterns without deleting them");
+    }
+    job = await prepare([cowork, claude]);
+    assert.deepEqual((await call(`/api/reviews/${job.id}/sessions/1`)).sessions, first.preview.sessions, "session identity, not list position, owns redactions");
+    job = await prepare([claude, cowork], "custom", { disabledKinds: first.preview.redactions.map(r => r.kind) });
+    let current = await call(`/api/reviews/${job.id}/sessions/0`);
+    assert.equal(current.detectionCount, 0);
+    assert.match(current.sessions[0].messages[1].text, /\[REDACTED CUSTOM\]/);
+    const crossOrigin = await fetch(`${local.url}/api/reviews/${job.id}/sessions/0`, { method: "DELETE", headers: { origin: "https://attacker.example" } });
+    assert.equal(crossOrigin.status, 403);
+    const reset = await call(`/api/reviews/${job.id}/sessions/0`, "DELETE");
+    assert.match(reset.preview.sessions[0].messages[1].text, /configuration mismatch/);
+    assert.equal(reset.preview.detectionCount, 0, "reset does not change automatic rules");
+    assert.equal(reset.preview.customRedactionCount, 1);
+    assert.deepEqual((await call(`/api/reviews/${job.id}/sessions/1`)).sessions, second.preview.sessions);
+    job = await prepare([claude, cowork]);
+    current = await call(`/api/reviews/${job.id}/sessions/0`);
+    assert.match(current.sessions[0].messages[1].text, /configuration mismatch/, "reset survives the next rebuild");
+    assert.deepEqual((await call(`/api/reviews/${job.id}/sessions/1`)).sessions, second.preview.sessions);
+  } finally { await new Promise(resolve => local.server.close(resolve)); }
+});

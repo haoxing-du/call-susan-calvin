@@ -26,7 +26,7 @@ async function run() {
   if (command === "delete") {
     const id = args[1];
     const receipt = loadDonationReceipt(id);
-    if (!receipt) throw new Error("That local donation receipt was not found.");
+    if (!receipt) throw new Error("That local donation receipt was not found. Run share-with-susan-calvin list to find donations managed by this device.");
     await deleteDonation(receipt.donationId, receipt.deletionToken, { group: receipt.group === true });
     deleteDonationReceipt(receipt.donationId);
     console.log(`Deleted donation ${receipt.donationId}.`);
@@ -46,7 +46,7 @@ async function run() {
   const local = await startLocalApp({ port, days, sources, demo });
   if (!local.sessionCount) {
     local.server.close();
-    throw new Error(`No supported agent sessions were found in the last ${days} days.`);
+    throw new Error(`No supported agent sessions were found in the last ${days} days. Try a wider date range, such as share-with-susan-calvin --days=90, and check that your selected agents have saved sessions on this device.`);
   }
   console.log(`Found ${local.sessionCount} eligible sessions. Nothing has left this machine.`);
   console.log(`\nReview them at ${local.url}\n`);
@@ -57,6 +57,6 @@ async function run() {
 }
 
 run().catch((error) => {
-  console.error(`\nCould not start session donation. ${error.message}\n`);
+  console.error(`\nCould not complete the command. ${error.message}\n`);
   process.exitCode = 1;
 });

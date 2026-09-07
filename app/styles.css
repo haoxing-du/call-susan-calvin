@@ -14,6 +14,8 @@ button, input, select, textarea { font: inherit; }
 button, summary { cursor: pointer; }
 a { color: inherit; text-underline-offset: 3px; }
 button, select, input, textarea { border: 1px solid #999; border-radius: 0; color: inherit; background: #fbf8f1; }
+input, select, textarea { border-color: var(--muted); }
+::placeholder { color: var(--muted); opacity: 1; }
 input[type="checkbox"] { accent-color: #20202a; flex: none; margin: 4px 0 0; }
 :focus-visible { outline: 2px solid #222; outline-offset: 3px; }
 button { padding: 9px 12px; }
@@ -60,14 +62,16 @@ p { margin: 0 0 12px; }
 .redactions details, .conversation { border-bottom: 1px solid var(--line); }
 .redactions details:last-child, .conversation:last-child { border-bottom: 0; }
 .redactions summary { padding: 10px 12px; font-size: 13px; }
-.redactions summary input { margin-right: 8px; }
+.redaction-category { display: flex; align-items: baseline; gap: 8px; margin: 8px 0; font-size: 13px; }
 .redactions summary b { float: right; margin-left: 8px; font-weight: 400; }
 .redactions > .hint { margin: 12px; }
 .matches { padding: 0 12px 8px; }
-.match { margin: 8px 0; color: var(--muted); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.match { display: block; margin: 8px 0; color: var(--muted); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 .custom { margin: 16px 0; padding: 16px 0; border-block: 1px solid var(--line); }
 .custom-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .custom-fields > * { min-width: 0; width: 100%; padding: 8px; }
+.custom-fields > label { display: grid; align-content: start; gap: 6px; padding: 0; font-size: 12px; }
+.custom-fields input, .custom-fields select { min-width: 0; width: 100%; padding: 8px; font-size: 14px; }
 .custom > .hint { margin-top: 8px; }
 #custom-status:not(:empty) { margin: 8px 0 0; }
 .secondary { font-size: 13px; }
@@ -124,6 +128,7 @@ footer { padding: 20px 0; border-top: 1px solid var(--line); color: var(--muted)
 .session-open strong { text-decoration: underline; text-underline-offset: 3px; }
 .sessions > .hint { padding: 12px; }
 #session-inclusion { margin-block-start: 16px; font-weight: 600; }
-#review-panel { scroll-margin-block-start: 16px; }
-#review-heading:focus { outline: none; }
 @media (min-width: 901px) { .controls { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; } }
+@media (max-width: 560px) {
+  input:not([type="checkbox"]), select, .custom-fields input, .custom-fields select { font-size: 16px; }
+}

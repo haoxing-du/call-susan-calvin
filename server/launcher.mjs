@@ -5,7 +5,6 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { discoverAllSessions, sessionsInWindow } from "./discovery.mjs";
-import { makeDonationPreview } from "./donation-preview.mjs";
 import { submitDonation, deleteDonation } from "./donation-client.mjs";
 import { createDeletionToken, deleteDonationReceipt, loadDonationReceipt, saveDonationReceipt } from "./store.mjs";
 
@@ -111,6 +110,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
           return json(response, 200, { cancelled: true });
         }
         if (request.method === "GET" && reviewMatch[2] !== undefined) return json(response, 200, await reviews.read(job, Number(reviewMatch[2])));
+        if (request.method === "DELETE" && reviewMatch[2] !== undefined) return json(response, 200, await reviews.resetCustom(job, Number(reviewMatch[2])));
         if (request.method === "POST" && reviewMatch[2] !== undefined) {
           const body = await readBody(request, 2_000);
           return json(response, 200, await reviews.redact(job, Number(reviewMatch[2]), body));
@@ -143,7 +143,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
         if (!sessionIds.length) return json(response, 400, { error: "Choose at least one available session." });
         const disabledKinds = safeArray(body.disabledKinds, /^[a-z0-9-]{1,64}$/, 20);
         const disabledMatches = safeArray(body.disabledMatches, /^[a-f0-9]{24}$/, 5_000);
-        const preview = await makeDonationPreview(catalog, sessionIds, { disabledKinds: body.mode === "custom" ? disabledKinds : [], disabledMatches: body.mode === "custom" ? disabledMatches : [], unredacted: body.mode === "unredacted" });
+        const preview = await reviews.makePreview(sessionIds, { mode: body.mode, disabledKinds: body.mode === "custom" ? disabledKinds : [], disabledMatches: body.mode === "custom" ? disabledMatches : [], unredacted: body.mode === "unredacted" });
         planBatches(preview.sessions.map(({ source, messages }) => ({ bytes: Buffer.byteLength(JSON.stringify({ source, messages })), messageCount: messages.length })));
         return json(response, 200, preview);
       }

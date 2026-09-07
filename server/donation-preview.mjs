@@ -31,7 +31,7 @@ function inventory(detections) {
   })).sort((left, right) => right.count - left.count);
 }
 
-function sessionSummary(messages) {
+export function sessionSummary(messages) {
   for (const message of messages) {
     if (message.role !== "user") continue;
     const excerpt = userMessageExcerpt(message.text);

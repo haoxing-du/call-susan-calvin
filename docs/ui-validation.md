@@ -1,14 +1,30 @@
-# Automatic preview and session navigation validation
+# Interface fixes in 0.2.3
 
-Validated locally on 2026-09-06 with synthetic data only.
+Validated locally on 2026-09-06 with synthetic data only. This covers all eight HIGH and MEDIUM findings from the whole-package interface review of 0.2.2. The existing paper theme, compact desktop typography, and bounded pagination remain.
 
-| Severity | Location | Before | After | Why |
-| --- | --- | --- | --- | --- |
-| Medium | app/index.html; app/app.js | Preview required an extra action; session rows only toggled donation inclusion. | Preview loads automatically; a separate title button opens each session and its checkbox controls donation inclusion. | Keep controls distinct from content and preserve a clear reading order. |
-| Medium | app/app.js; app/styles.css | Large catalogs required paging to locate a session; the active transcript was disconnected from the picker. | Search spans the catalog, the active row is highlighted, and the picker stays visible on desktop. Mobile title clicks scroll the loaded review to the top. | Hint at hidden content and keep related navigation visible. |
+| Finding | Resolution |
+| --- | --- |
+| Unnamed redaction controls | Native labels name category checkboxes, individual matches, and the custom-pattern field. Category controls sit inside the disclosure rather than competing with its summary action. |
+| Input contrast | Input borders and placeholders use the existing muted color, #5f5d67 on #fbf8f1, at 6.10:1 contrast. |
+| Startup errors without recovery | Catalog errors offer Retry loading sessions and restart instructions. CLI no-session errors suggest a wider date range; receipt errors suggest the list command. The common error prefix no longer incorrectly describes every failure as startup. |
+| Lost custom redactions | Session-specific patterns survive selection, ordering, mode and automatic-rule changes in server memory. Other modes suspend them with an explicit notice. Reset affects only the displayed session and preserves automatic rules. Patterns are reapplied after automatic redaction; the UI asks donors to review rule changes. |
+| Session-click page jump | Removed whole-page scrolling and heading focus on session selection. Existing content keeps its height while a replacement loads; actions are disabled until that session is ready. |
+| Missing action feedback | Validation binds errors to the pattern input and focuses it. Results and deletion updates have polite status semantics. Rule-toggle focus is restored after rebuilding. Completion focuses the success heading. |
+| Search overpromises | The hint now explicitly limits message search to opening messages. |
+| Small mobile inputs | Editable inputs and selects compute to 16 px at the mobile breakpoint. |
 
-Browser checks passed for automatic initial loading, selected and unchecked sessions, an empty selection, rapid mode changes, retained active sessions, and custom redactions surviving navigation. A synthetic 14,100-session catalog with delayed mock preparation rendered only 30 session rows; search opened session 14,100 while preserving all donation selections. Changing modes cancelled the obsolete mock preparation and displayed the latest mode. This is a UI scalability check, separate from the production upload test in performance.md. Actual local-server cancellation and consent checks run in the Node test suite.
+## Verification
 
-Layout checked at 1280×850 and 390×844. The narrow viewport had no horizontal overflow, and clicking a session positioned the review panel 16 px from the top. Temporary viewport overrides were reset. 200% browser zoom and an RTL mirror: **Not verified**.
+- `npm run check`: 34 tests and syntax checks for 21 JavaScript files pass. The new local-server regression test covers unrelated session deselection, excluded-session previews, reordered selections, standard/unredacted/custom transitions, automatic-rule changes, per-session reset, summary redaction and cross-origin reset rejection.
+- `npm pack --dry-run`: reviewed the published file list; only the intended application, server, fixture and documentation files are included.
+- Desktop browser at 1280 x 900: a direct accessibility click on Demo build failure left `scrollY` at 0 and focus on the session button. Locator helpers that scroll before acting were not used as evidence of app-driven page movement.
+- Custom mode: category and individual-match names appeared in the accessibility tree. Expanding Email addresses preserved its enabled setting; toggling Redact all email addresses changed it independently and restored focus after preparation.
+- Applied a synthetic custom redaction, then deselected Research update. The marker remained in the other session. Reloading the page and returning to Custom mode also retained it. Reset restored only that session's custom text and left the disabled email rule unchanged.
+- Empty custom input: the field received focus, `aria-invalid=true`, and `aria-describedby=custom-error`. Successful Apply and Reset exposed polite status updates and retained a usable focus target.
+- At 320 x 900: search, session number, pattern input and selects computed to 16 px; placeholders and borders computed to the intended muted color. Document width did not exceed the viewport. Viewport overrides were reset after testing.
+- A local-only fixture returned a catalog error once, then an empty catalog. Retry loading sessions recovered to No sessions found and focused the empty-state guidance. No external service was contacted.
+- Demo donation completed without transmitting data. Focus moved to Donation received. The existing shutdown test verifies the server stops only after completion.
 
-Approve the inspected layouts; no remaining high-severity findings in that coverage.
+Not verified: actual screen-reader speech, mobile Safari focus zoom, forced-colors mode, RTL, true 200% browser zoom, production receipt deletion, and a new 100x volume benchmark. The bounded rendering and existing large-review tests remain in place; these fixes add no new performance certification.
+
+Approve the fixes to the eight reviewed findings within this coverage.

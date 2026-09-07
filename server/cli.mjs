@@ -13,6 +13,7 @@ function valueArgument(name, fallback) {
 
 function help() {
   console.log(`share-with-susan-calvin [--days=30] [--source=claude,cowork,codex] [--no-open]\nshare-with-susan-calvin --demo\nshare-with-susan-calvin list\nshare-with-susan-calvin delete <donation-id>`);
+  console.log("\nDiscovers the past 30 days by default. Use --days=N to change the window, e.g. --days=90 for the past 90 days.");
 }
 
 async function run() {
@@ -42,6 +43,10 @@ async function run() {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be a valid port number.");
 
   console.log(`\nShare with Susan Calvin\nReview and donate AI agent sessions for research.\n`);
+  if (!demo) {
+    console.log(`Date window: past ${days} days (default: 30).`);
+    console.log("Use --days=N to change the window, e.g. --days=90 for the past 90 days.\n");
+  }
   console.log("Finding local Claude Code, Claude Cowork, and Codex sessions…");
   const local = await startLocalApp({ port, days, sources, demo });
   if (!local.sessionCount) {

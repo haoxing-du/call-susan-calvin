@@ -30,6 +30,9 @@ Messages are read-only in every mode. Original message timestamps are included w
 
 ## Options and management
 
+Discovery covers the past 30 days by default. Set `--days=N` to change the window;
+for example, `npx share-with-susan-calvin@latest --days=90` covers the past 90 days.
+
 ```text
 share-with-susan-calvin [--days=30] [--source=claude,cowork,codex] [--no-open]
 share-with-susan-calvin --demo

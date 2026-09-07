@@ -6,6 +6,11 @@ import { openExternalUrl } from "./platform.mjs";
 
 const args = process.argv.slice(2);
 const command = args[0] && !args[0].startsWith("--") ? args[0] : "start";
+const useColor = Boolean(process.stdout.isTTY) && !("NO_COLOR" in process.env) && process.env.TERM !== "dumb";
+const style = (text, code) => useColor ? `\x1b[${code}m${text}\x1b[0m` : text;
+const accent = (text) => style(text, "95");
+const muted = (text) => style(text, "2");
+const rail = muted("  │");
 
 function valueArgument(name, fallback) {
   return args.find((argument) => argument.startsWith(`${name}=`))?.slice(name.length + 1) ?? fallback;
@@ -42,19 +47,21 @@ async function run() {
   const port = Number(valueArgument("--port", "4318"));
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be a valid port number.");
 
-  console.log(`\nShare with Susan Calvin\nReview and donate AI agent sessions for research.\n`);
+  console.log(`\n  ${accent("◇")}  ${style("Share with Susan Calvin", "1")}\n${rail}  Review and donate AI agent sessions for research.\n${rail}`);
   if (!demo) {
-    console.log(`Date window: past ${days} days (default: 30).`);
-    console.log("Use --days=N to change the window, e.g. --days=90 for the past 90 days.\n");
+    console.log(`${rail}  Past ${style(String(days), "1")} day${days === 1 ? "" : "s"}${days === 30 ? muted(" (default)") : ""}`);
+    console.log(`${rail}  ${muted("Change with --days=N, e.g. --days=90.")}\n${rail}`);
   }
-  console.log("Finding local Claude Code, Claude Cowork, and Codex sessions…");
+  const sourceNames = { claude: "Claude Code", cowork: "Claude Cowork", codex: "Codex" };
+  console.log(`  ${accent("◇")}  Finding local sessions…`);
+  console.log(`${rail}  ${muted(demo ? "Demo data" : (sources.length ? sources : Object.keys(sourceNames)).map(source => sourceNames[source]).join(" · "))}`);
   const local = await startLocalApp({ port, days, sources, demo });
   if (!local.sessionCount) {
     local.server.close();
     throw new Error(`No supported agent sessions were found in the last ${days} days. Try a wider date range, such as share-with-susan-calvin --days=90, and check that your selected agents have saved sessions on this device.`);
   }
-  console.log(`Found ${local.sessionCount} eligible sessions. Nothing has left this machine.`);
-  console.log(`\nReview them at ${local.url}\n`);
+  console.log(`  ${style("✓", "32")}  ${style(`${local.sessionCount} session${local.sessionCount === 1 ? "" : "s"} ready`, "1")} ${muted("· nothing uploaded")}\n${rail}`);
+  console.log(`  ${accent("◇")}  Review locally\n${rail}  ${style(local.url, "1;95")}\n${rail}\n  ${muted("╰  Ctrl+C to stop the local server.")}\n`);
   if (!args.includes("--no-open")) openExternalUrl(local.url);
   const stop = () => { local.server.close(); local.server.closeIdleConnections(); };
   process.on("SIGINT", stop);

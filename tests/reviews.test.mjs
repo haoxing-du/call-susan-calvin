@@ -93,3 +93,31 @@ test("custom redaction only replaces matches with a fixed marker and preserves e
     await assert.rejects(reviews.redact(job, 0, { pattern: "Keep", type: "text" }), /finish/);
   } finally { await reviews.close(); }
 });
+
+
+test("replacing an automatic preview cancels pending preparation and removes its snapshot", async () => {
+  let finishRead, started;
+  const reading = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { finishRead = resolve; });
+  let reads = 0;
+  const reviews = new Reviews(catalog, { preview: async (...args) => {
+    reads++; started(); await gate; return preview(...args);
+  } });
+  const initial = await reviews.create([...catalog.index.keys()], { mode: "standard" });
+  const old = reviews.get(initial.id);
+  try {
+    await reading;
+    const cancelled = reviews.cancel(old);
+    finishRead(); await cancelled;
+    assert.equal(reads, 1, "obsolete selections stop after the current session");
+    assert.equal(old.status, "cancelled");
+    await assert.rejects(fs.stat(old.folder), { code: "ENOENT" });
+    const latest = await reviews.create(["7"], { mode: "custom" });
+    const job = reviews.get(latest.id); await job.task;
+    assert.equal(job.status, "ready");
+    assert.deepEqual(job.sessions.map(s => s.id), ["7"]);
+    job.status = "uploading";
+    await assert.rejects(reviews.cancel(job), /finish/);
+    assert.equal(job.cancelled, undefined, "uploading snapshots cannot be cancelled by preview changes");
+  } finally { await reviews.close(); }
+});

@@ -114,3 +114,16 @@ footer { padding: 20px 0; border-top: 1px solid var(--line); color: var(--muted)
 #review-position { width: 72px; padding: 5px; }
 #progress:not(:empty) { margin-top: 16px; }
 #close-status, #close-app { margin-bottom: 16px; }
+
+.search-field { display: grid; gap: 6px; margin-block: 12px; font-size: 12px; }
+.search-field input { width: 100%; min-width: 0; padding: 8px; }
+.session { padding: 8px; align-items: start; }
+.session > input { margin-block-start: 12px; }
+.session-open { min-width: 0; width: 100%; padding: 4px 8px; text-align: start; border-color: transparent; background: transparent; }
+.session.active { background: #eee9f2; box-shadow: inset 3px 0 #71647f; }
+.session-open strong { text-decoration: underline; text-underline-offset: 3px; }
+.sessions > .hint { padding: 12px; }
+#session-inclusion { margin-block-start: 16px; font-weight: 600; }
+#review-panel { scroll-margin-block-start: 16px; }
+#review-heading:focus { outline: none; }
+@media (min-width: 901px) { .controls { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; } }

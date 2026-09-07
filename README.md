@@ -45,13 +45,15 @@ Codex can store injected setup and plugin information with the user role. In the
 
 The command runs a foreground server on `127.0.0.1:4318` by default. Stop it with Ctrl+C, or use **Close window and stop local server** on the donation success screen. If the browser prevents the page from closing its own tab, the server still stops and the page says it is safe to close. Closing a tab by itself does not stop the server. There is no idle timeout or automatic restart.
 
-The session catalog is built at startup. Restart to discover new sessions. Selection and consent reset on page reload. Preparing a preview creates an owner-only temporary snapshot on this device; custom redactions are saved immediately to that snapshot. Refreshing the preview replaces the snapshot and discards custom redactions. Source histories are never modified. Snapshots are removed after successful upload, when replaced, or when the server closes normally. A forced process kill or machine crash may leave temporary files until cleanup.
+The preview loads automatically at startup and updates when the donation mode, selected sessions, or automatic redaction rules change. Clicking a session title opens it without changing its donation checkbox. Unchecked sessions can be inspected and are labeled as excluded.
+
+The session catalog is built at startup. Restart to discover new sessions. Selection and consent reset on page reload. Preparing a preview creates an owner-only temporary snapshot on this device; custom redactions are saved immediately to that snapshot. Changing the selection, mode, or automatic rules replaces the snapshot and discards custom redactions. **Reset custom redactions** also restores the current automatic rules. Source histories are never modified. Snapshots are removed after successful upload, when replaced, or when the server closes normally. A forced process kill or machine crash may leave temporary files until cleanup.
 
 A session index (including brief excerpts and transcript titles) and deletion receipts persist under `~/.call-susan-calvin/` with owner-only permissions. Demo mode does not write this index or donation receipts.
 
 ## Large donations
 
-The picker displays 30 sessions per page, and review displays one session and up to 40 messages at a time. All selected sessions remain included. Text and regular-expression redactions apply to the session currently displayed; automatic redaction preferences apply to the whole selection.
+The picker displays at most 30 sessions per page, with pagination hidden for shorter lists. Search finds titles, first-message excerpts, and agent names across the whole catalog without changing donation selection. Review displays one session and up to 40 messages at a time. The active session loads immediately while the full selection prepares in the background; changing options cancels obsolete preparation. Consent remains disabled until the current snapshot is ready. All selected sessions remain included. Text and regular-expression redactions apply to the session currently displayed; automatic redaction preferences apply to the whole selection.
 
 Up to 100,000 sessions can be reviewed. Uploads are packed into batches of roughly 4 MB before compression, with complete sessions kept together. A single session may contain up to 7 MB of JSON and 50,000 messages; oversized sessions are reported before upload rather than truncated. The total donation can exceed the old 250-session and 20 MB limits.
 

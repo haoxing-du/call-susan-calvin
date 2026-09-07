@@ -20,19 +20,21 @@
       <section id="empty" class="card centered hidden"><h2>No sessions found</h2><p>Try restarting the command with a wider date range, such as <code>--days=90</code>.</p></section>
       <div id="workspace" class="workspace hidden">
         <section class="card controls">
-          <div class="step"><span>1</span><div><h2>Select sessions</h2><p>Sessions from local agent history.</p></div></div>
+          <div class="step"><span>1</span><div><h2>Select sessions</h2><p>Click a session to view it. Check its box to include it in the donation.</p></div></div>
           <div class="selection-heading"><label><input id="select-all" type="checkbox" checked> Select all</label><span id="selection-count"></span></div>
+          <label class="search-field">Find a session<input id="session-search" type="search" placeholder="Search titles, messages, or agents"></label>
           <div id="sessions" class="sessions"></div>
-          <div class="pagination"><button id="sessions-prev" aria-label="Previous session page">←</button><span id="session-page"></span><button id="sessions-next" aria-label="Next session page">→</button></div>
+          <div id="session-pagination" class="pagination"><button id="sessions-prev" aria-label="Previous session page">←</button><span id="session-page"></span><button id="sessions-next" aria-label="Next session page">→</button></div>
           <label class="field"><span>Donation mode</span><select id="mode"><option value="standard">Standard redactions</option><option value="custom">Customize redactions</option><option value="unredacted">Unredacted</option></select></label>
           <p id="mode-description" class="hint"></p>
-          <button id="preview-button" class="primary">Preview data</button>
         </section>
 
-        <section class="card review">
-          <div class="step"><span>2</span><div><h2>Review data</h2><p>Messages are read-only. Use Customize redactions to hide sensitive text, or deselect an entire session in step 1.</p></div></div>
-          <div id="review-placeholder" class="placeholder">Select sessions and click Preview data.</div>
+        <section id="review-panel" class="card review">
+          <div class="step"><span>2</span><div><h2 id="review-heading" tabindex="-1">Review data</h2><p>Messages are read-only. Use Customize redactions to hide sensitive text, or deselect an entire session in step 1.</p></div></div>
+          <div id="review-placeholder" class="placeholder">Loading session…</div>
+          <button id="retry-preview" class="secondary hidden">Retry loading preview</button>
           <div id="review-content" class="hidden">
+            <p id="session-inclusion" class="hint"></p>
             <div id="warning"></div>
             <div id="redaction-summary"></div>
             <div id="redactions"></div>
@@ -43,7 +45,8 @@
                 <input id="custom-pattern" maxlength="200" placeholder="Text or pattern to remove">
                 <button id="apply-custom" class="secondary">Apply</button>
               </div>
-              <p class="hint">Matches are replaced with [REDACTED CUSTOM]. Refreshing the preview or changing automatic rules resets custom redactions.</p>
+              <p class="hint">Matches are replaced with [REDACTED CUSTOM]. Changing selected sessions, donation mode, or automatic rules resets custom redactions.</p>
+              <button id="reset-custom" class="secondary">Reset custom redactions</button>
               <p id="custom-status" class="hint"></p>
             </section>
             <p class="hint">Message timestamps are included when available.</p>

@@ -49,7 +49,9 @@ export class Reviews {
   get(id) { const job = this.jobs.get(id); if (!job) throw new Error("Review expired. Prepare a new preview."); return job; }
   async prepare(job, ids) {
     for (const id of ids) {
+      if (job.cancelled) return;
       const preview = await this.preview(this.catalog, [id], job.options);
+      if (job.cancelled) return;
       if (preview.sessions.length !== 1) throw new Error("A selected session no longer contains readable messages. Refresh the session selection.");
       const session = preview.sessions[0];
       const bytes = byteLength({ source: session.source, messages: session.messages });
@@ -61,6 +63,14 @@ export class Reviews {
     }
     job.batches = planBatches(job.sessions);
     job.status = "ready";
+  }
+  async cancel(job) {
+    if (!["preparing", "ready", "error"].includes(job.status) || job.redacting) throw new Error("Wait for the current operation to finish.");
+    job.cancelled = true;
+    await job.task;
+    job.status = "cancelled";
+    await fs.rm(job.folder, { recursive: true, force: true });
+    this.jobs.delete(job.id);
   }
   async read(job, index) {
     if (!Number.isInteger(index) || index < 0 || index >= job.sessions.length) throw new Error("Session not found.");

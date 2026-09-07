@@ -97,3 +97,23 @@ test("custom mode starts from standard redactions; standard rules cannot be disa
     assert.ok((await prepare("custom", { disabledKinds })).every(p => p.detectionCount === 0));
   } finally { await new Promise((resolve) => local.server.close(resolve)); }
 });
+
+
+test("an obsolete local preview can be cancelled and replaced without transmitting", async () => {
+  const local = await startLocalApp({ port: 0, demo: true });
+  const call = async (route, method = "GET", body) => fetch(`${local.url}${route}`, { method, headers: { origin: local.url, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  try {
+    const catalog = await (await call("/api/catalog")).json();
+    const body = { sessionIds: catalog.sessions.map(s => s.id), mode: "standard" };
+    const initial = await (await call("/api/reviews", "POST", body)).json();
+    assert.equal((await call(`/api/reviews/${initial.id}`, "DELETE")).status, 200);
+    const latest = await (await call("/api/reviews", "POST", { ...body, sessionIds: [body.sessionIds[2]], mode: "unredacted" })).json();
+    let status;
+    do { status = await (await call(`/api/reviews/${latest.id}`)).json(); } while (status.status === "preparing");
+    assert.equal(status.status, "ready");
+    assert.deepEqual(status.sessions.map(s => s.id), [body.sessionIds[2]]);
+    const preview = await (await call(`/api/reviews/${latest.id}/sessions/0`)).json();
+    assert.equal(preview.detectionCount, 0);
+    assert.equal((await call(`/api/reviews/${latest.id}/donate`, "POST", {})).status, 400);
+  } finally { await new Promise(resolve => local.server.close(resolve)); }
+});

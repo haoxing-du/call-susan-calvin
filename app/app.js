@@ -4,6 +4,7 @@ const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((
 const state = {
   catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Set(),
   acceptedId: "", busy: false, review: null, sessionPage: 0, reviewIndex: 0, messagePage: 0,
+  activeId: "", filtered: [], revision: 0, building: false, updating: false, previewRequest: 0, timer: null,
 };
 
 function setHidden(element, hidden) { element.classList.toggle("hidden", hidden); }
@@ -14,7 +15,7 @@ function clearReview() {
   setHidden(elements["review-placeholder"], false);
   setHidden(elements["review-content"], true);
   elements["custom-status"].textContent = "";
-  elements["preview-button"].textContent = "Preview data";
+  elements["review-placeholder"].textContent = "Loading session…";
 }
 function invalidateConsent() {
   elements.consent.checked = false;
@@ -25,35 +26,49 @@ function updateDonateButton() {
   const messages = state.preview?.sessions.reduce((sum, session) => sum + session.messages.length, 0) || 0;
   const hasEmptyMessage = (state.preview?.sessions.some((session) => session.messages.some((message) => !message.text.trim())) || false);
   setHidden(elements["message-validation"], !hasEmptyMessage);
-  elements.donate.disabled = state.busy || !messages || hasEmptyMessage || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
+  elements.donate.disabled = state.busy || state.updating || state.review?.status !== "ready" || !state.chosen.size || !messages || hasEmptyMessage || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
 }
 
 function renderSessions() {
+  const scrollTop = elements.sessions.scrollTop;
   elements.sessions.replaceChildren();
-  for (const session of state.catalog.slice(state.sessionPage * 30, (state.sessionPage + 1) * 30)) {
-    const label = document.createElement("label"); label.className = "session";
+  for (const session of state.filtered.slice(state.sessionPage * 30, (state.sessionPage + 1) * 30)) {
+    const row = document.createElement("div"); row.className = "session";
+    const name = session.title || `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()}`;
     const input = document.createElement("input"); input.type = "checkbox"; input.checked = state.chosen.has(session.id);
-    input.addEventListener("change", () => { input.checked ? state.chosen.add(session.id) : state.chosen.delete(session.id); clearReview(); invalidateConsent(); renderSelectionCount(); });
-    const copy = document.createElement("span");
-    const strong = document.createElement("strong"); strong.textContent = session.title || `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()}`;
-    strong.title = strong.textContent;
+    input.setAttribute("aria-label", `Include ${name} in donation`); input.disabled = state.busy;
+    input.addEventListener("change", () => { input.checked ? state.chosen.add(session.id) : state.chosen.delete(session.id); renderSelectionCount(); scheduleReview(); });
+    const copy = document.createElement("button"); copy.type = "button"; copy.className = "session-open";
+    copy.setAttribute("aria-label", `View ${name}`); copy.dataset.sessionId = session.id; copy.disabled = state.busy;
+    const strong = document.createElement("strong"); strong.textContent = name; strong.title = name;
     const preview = document.createElement("span"); preview.className = "session-excerpt";
-    preview.textContent = session.firstUserMessage || "No user message available";
-    preview.title = preview.textContent;
+    preview.textContent = session.firstUserMessage || "No user message available"; preview.title = preview.textContent;
     const small = document.createElement("small"); small.textContent = `${session.title ? `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()} · ` : ""}${session.messageCount} messages · ${formatBytes(session.sizeBytes)}`;
-    copy.append(strong, preview, small); label.append(input, copy); elements.sessions.append(label);
+    copy.append(strong, preview, small);
+    copy.addEventListener("click", () => void showSession(session.id, true));
+    row.append(input, copy); elements.sessions.append(row);
   }
-  elements["session-page"].textContent = `${state.sessionPage + 1} / ${Math.max(1, Math.ceil(state.catalog.length / 30))}`;
-  elements["sessions-prev"].disabled = state.sessionPage === 0;
-  elements["sessions-next"].disabled = (state.sessionPage + 1) * 30 >= state.catalog.length;
-  renderSelectionCount();
+  if (!state.filtered.length) {
+    const empty = document.createElement("p"); empty.className = "hint"; empty.textContent = "No matching sessions."; elements.sessions.append(empty);
+  }
+  elements.sessions.scrollTop = scrollTop;
+  elements["session-page"].textContent = `Page ${state.sessionPage + 1} of ${Math.max(1, Math.ceil(state.filtered.length / 30))}`;
+  setHidden(elements["session-pagination"], state.filtered.length <= 30);
+  renderSelectionCount(); highlightSession(); updateNavigation();
+}
+
+function highlightSession() {
+  for (const button of elements.sessions.querySelectorAll(".session-open")) {
+    const active = button.dataset.sessionId === state.activeId;
+    button.setAttribute("aria-current", active ? "true" : "false");
+    button.closest(".session").classList.toggle("active", active);
+  }
 }
 
 function renderSelectionCount() {
   elements["selection-count"].textContent = `${state.chosen.size} of ${state.catalog.length} selected`;
   elements["select-all"].checked = state.chosen.size === state.catalog.length && state.catalog.length > 0;
   elements["select-all"].indeterminate = state.chosen.size > 0 && state.chosen.size < state.catalog.length;
-  elements["preview-button"].disabled = !state.chosen.size || state.busy;
 }
 
 function renderMode() {
@@ -63,7 +78,7 @@ function renderMode() {
     unredacted: "Disables automatic redaction. Every included line must be reviewed, and an additional acknowledgement is required.",
   };
   elements["mode-description"].textContent = descriptions[state.mode];
-  setHidden(elements["custom-redaction"], state.mode !== "custom" || !state.preview);
+  setHidden(elements["custom-redaction"], state.mode !== "custom" || !state.preview || !state.chosen.has(state.activeId));
   setHidden(elements["unredacted-consent"], state.mode !== "unredacted");
   elements.donate.firstChild.textContent = state.mode === "unredacted" ? "Donate unredacted data " : "Donate reviewed data ";
 }
@@ -76,32 +91,75 @@ async function api(url, method = "GET", body) {
 }
 
 function lockControls(locked) {
-  for (const control of elements.workspace.querySelectorAll("input, select, textarea, button")) control.disabled = locked;
-  if (!locked) { renderSelectionCount(); updateDonateButton(); updateNavigation(); }
+  for (const control of elements.workspace.querySelectorAll("input, select, button")) control.disabled = locked;
+  if (!locked) {
+    for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating;
+    for (const control of elements.redactions.querySelectorAll("input")) control.disabled = state.updating;
+    elements.consent.disabled = state.updating || !state.chosen.size || state.review?.status !== "ready";
+    elements["unredacted-ack"].disabled = elements.consent.disabled;
+    renderSelectionCount(); updateDonateButton(); updateNavigation();
+  }
 }
 function updateNavigation() {
   elements["sessions-prev"].disabled = state.busy || state.sessionPage === 0;
-  elements["sessions-next"].disabled = state.busy || (state.sessionPage + 1) * 30 >= state.catalog.length;
+  elements["sessions-next"].disabled = state.busy || (state.sessionPage + 1) * 30 >= state.filtered.length;
   elements["messages-prev"].disabled = state.busy || state.messagePage === 0;
   elements["messages-next"].disabled = state.busy || (state.messagePage + 1) * 40 >= (state.preview?.sessions[0]?.messages.length || 0);
-  elements["review-prev"].disabled = state.busy || state.reviewIndex === 0;
-  elements["review-next"].disabled = state.busy || state.reviewIndex + 1 >= (state.review?.sessions.length || 0);
-  elements["review-position"].value = state.reviewIndex + 1;
-  elements["review-position"].max = state.review?.sessions.length || 1;
-  elements["review-total"].textContent = `of ${state.review?.sessions.length || 0} sessions`;
+  const index = state.catalog.findIndex((s) => s.id === state.activeId);
+  elements["review-prev"].disabled = state.busy || index <= 0;
+  elements["review-next"].disabled = state.busy || index + 1 >= state.catalog.length;
+  elements["review-position"].value = index + 1;
+  elements["review-position"].max = state.catalog.length || 1;
+  elements["review-total"].textContent = `of ${state.catalog.length} sessions`;
 }
-async function loadReviewSession(index) {
-  if (!state.review || index < 0 || index >= state.review.sessions.length) return;
-  const preview = await api(`/api/reviews/${state.review.id}/sessions/${index}`);
-  state.reviewIndex = index; state.messagePage = 0; state.preview = preview;
-  renderReview(); updateNavigation();
+function previewOptions() {
+  return { mode: state.mode, disabledKinds: [...state.disabledKinds], disabledMatches: [...state.disabledMatches] };
 }
-async function navigateReview(index) {
+async function showSession(id, focus = false) {
+  if (state.busy || !id) return;
+  state.activeId = id;
+  const request = ++state.previewRequest, revision = state.revision;
+  state.preview = null;
+  setHidden(elements["review-content"], true); setHidden(elements["review-placeholder"], false);
+  elements["review-placeholder"].textContent = "Loading session…";
+  elements["custom-status"].textContent = "";
+  highlightSession(); updateDonateButton(); updateNavigation();
+  if (focus) {
+    elements["review-heading"].focus({ preventScroll: true });
+  }
+  try {
+    const index = state.review?.sessions?.findIndex((s) => s.id === id) ?? -1;
+    const preview = state.review?.status === "ready" && index >= 0
+      ? await api(`/api/reviews/${state.review.id}/sessions/${index}`)
+      : await api("/api/donation-preview", "POST", { sessionIds: [id], ...previewOptions() });
+    if (request !== state.previewRequest || revision !== state.revision) return;
+    if (!preview.sessions.length) throw new Error("This session no longer has readable messages. Deselect it to continue.");
+    state.reviewIndex = index; state.messagePage = 0; state.preview = preview;
+    renderReview(); lockControls(state.busy);
+    if (focus) elements["review-panel"].scrollIntoView({ block: "start", behavior: "instant" });
+  } catch (error) {
+    if (request !== state.previewRequest || revision !== state.revision) return;
+    elements["review-placeholder"].textContent = error.message;
+    if (focus) elements["review-panel"].scrollIntoView({ block: "start", behavior: "instant" });
+  }
+}
+function navigateReview(index) {
+  if (state.busy || !Number.isInteger(index) || index < 0 || index >= state.catalog.length) return updateNavigation();
+  const id = state.catalog[index].id;
+  if (!state.filtered.some((s) => s.id === id)) { elements["session-search"].value = ""; state.filtered = state.catalog; }
+  state.sessionPage = Math.floor(state.filtered.findIndex((s) => s.id === id) / 30);
+  renderSessions(); void showSession(id);
+}
+function scheduleReview() {
   if (state.busy) return;
-  state.busy = true; lockControls(true); setError();
-  try { await loadReviewSession(index); } catch (error) { setError(error.message); }
-  finally { state.busy = false; lockControls(false); }
+  clearTimeout(state.timer);
+  state.revision++; state.updating = true; state.review = null;
+  clearReview(); invalidateConsent(); renderMode(); lockControls(false);
+  setHidden(elements["retry-preview"], true); setError();
+  elements["progress"].textContent = state.chosen.size ? "Updating selected sessions…" : "No sessions selected for donation.";
+  state.timer = setTimeout(() => void buildPreview(), 200);
 }
+
 async function pollReview() {
   while (true) {
     state.review = { ...state.review, ...await api(`/api/reviews/${state.review.id}`) };
@@ -111,18 +169,40 @@ async function pollReview() {
     await new Promise((resolve) => setTimeout(resolve, 700));
   }
 }
-async function buildPreview(index = 0) {
-  if (state.busy) return;
-  state.busy = true; setError(); invalidateConsent(); lockControls(true);
-  elements["custom-status"].textContent = "";
-  elements["preview-button"].textContent = "Preparing preview…";
+async function buildPreview() {
+  if (state.building || state.busy) return;
+  state.building = true;
+  let revision;
   try {
-    state.review = await api("/api/reviews", "POST", { sessionIds: [...state.chosen], mode: state.mode, disabledKinds: [...state.disabledKinds], disabledMatches: [...state.disabledMatches] });
-    const job = await pollReview();
-    if (job.status !== "ready") throw new Error(job.error || "Could not prepare the review.");
-    await loadReviewSession(Math.min(index, job.sessions.length - 1));
-  } catch (error) { clearReview(); setError(error.message); }
-  finally { state.busy = false; elements["preview-button"].textContent = "Refresh preview"; lockControls(false); }
+    do {
+      revision = state.revision;
+      const ids = [...state.chosen];
+      state.updating = ids.length > 0;
+      // Display just the active session while the full donation snapshot prepares.
+      void showSession(state.activeId);
+      if (!ids.length) { state.updating = false; lockControls(false); break; }
+      let job = await api("/api/reviews", "POST", { sessionIds: ids, ...previewOptions() });
+      while (job.status === "preparing" && revision === state.revision) {
+        elements["progress"].textContent = `Preparing ${job.processed} of ${job.total} selected sessions…`;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (revision === state.revision) job = await api(`/api/reviews/${job.id}`);
+      }
+      if (revision !== state.revision) {
+        await api(`/api/reviews/${job.id}`, "DELETE");
+        continue;
+      }
+      if (job.status !== "ready") throw new Error(job.error || "Could not prepare the review.");
+      state.review = job; state.updating = false;
+      elements["progress"].textContent = ""; setError();
+      await showSession(state.activeId);
+    } while (revision !== state.revision);
+  } catch (error) {
+    setError(error.message); state.updating = false;
+    setHidden(elements["retry-preview"], false);
+  } finally {
+    state.building = false; lockControls(state.busy);
+    if (revision !== state.revision) void buildPreview();
+  }
 }
 
 function redactionCheckbox(item, match = null) {
@@ -137,7 +217,7 @@ function redactionCheckbox(item, match = null) {
       state.disabledKinds.delete(item.kind);
       for (const existing of item.matches) state.disabledMatches.delete(existing.id);
     } else state.disabledKinds.add(item.kind);
-    void buildPreview(state.reviewIndex);
+    scheduleReview();
   });
   return input;
 }
@@ -213,29 +293,30 @@ function renderConversations() {
 
 function renderReview() {
   setHidden(elements["review-placeholder"], true); setHidden(elements["review-content"], false);
-  const messages = state.preview.sessions.reduce((sum, session) => sum + session.messages.length, 0);
+  const messages = state.review?.messages ?? state.catalog.reduce((sum, session) => sum + (state.chosen.has(session.id) ? session.messageCount : 0), 0);
+  elements["session-inclusion"].textContent = state.chosen.has(state.activeId) ? "Included in donation" : "Not included in donation. Check its box on the left to include it.";
   if (state.mode === "unredacted") {
     elements.warning.className = "banner danger";
     elements.warning.textContent = "No automatic redactions are active. Credentials, personal details, code, URLs, and paths may be present.";
-    elements["redaction-summary"].textContent = `${state.review.sessions.length} sessions · ${state.review.messages.toLocaleString()} messages selected.`;
+    elements["redaction-summary"].textContent = `${state.chosen.size} sessions · ${messages.toLocaleString()} messages selected.`;
   } else {
     elements.warning.className = "banner";
     elements.warning.textContent = `${state.preview.detectionCount} likely sensitive items removed in this session`;
-    elements["redaction-summary"].textContent = `${state.review.sessions.length} sessions · ${state.review.messages.toLocaleString()} messages selected. Showing one session below.`;
+    elements["redaction-summary"].textContent = `${state.chosen.size} sessions · ${messages.toLocaleString()} messages selected. Showing one session below.`;
     elements["redaction-summary"].className = "hint";
   }
   renderRedactions(); renderConversations(); renderMode(); updateDonateButton();
 }
 
 async function applyCustomRedaction() {
-  if (state.busy || state.mode !== "custom" || !state.preview) return;
+  if (state.busy || state.updating || state.review?.status !== "ready" || state.reviewIndex < 0 || state.mode !== "custom" || !state.preview || !state.chosen.has(state.activeId)) return;
   const pattern = elements["custom-pattern"].value;
   if (!pattern) return elements["custom-status"].textContent = "Enter text or a regular expression.";
   state.busy = true; invalidateConsent(); lockControls(true);
   try {
     const result = await api(`/api/reviews/${state.review.id}/sessions/${state.reviewIndex}`, "POST", { pattern, type: elements["custom-mode"].value });
     state.preview = result.preview;
-    elements["custom-status"].textContent = result.count ? `Applied ${result.count} redaction${result.count === 1 ? "" : "s"}. Refresh the preview to undo.` : "No matches found.";
+    elements["custom-status"].textContent = result.count ? `Applied ${result.count} redaction${result.count === 1 ? "" : "s"}. Use Reset custom redactions to undo.` : "No matches found.";
     if (result.count) elements["custom-pattern"].value = "";
     renderConversations();
   } catch (error) { elements["custom-status"].textContent = error.message; }
@@ -243,7 +324,7 @@ async function applyCustomRedaction() {
 }
 
 async function donate() {
-  if (state.busy) return;
+  if (state.busy || state.updating || !state.review || !state.chosen.size) return;
   state.busy = true; setError(); lockControls(true);
   try {
     await api(`/api/reviews/${state.review.id}/donate`, "POST", { researchDonation: elements.consent.checked, unredactedData: elements["unredacted-ack"].checked });
@@ -288,23 +369,27 @@ async function deleteAcceptedDonation() {
 
 elements["select-all"].addEventListener("change", () => {
   state.chosen = elements["select-all"].checked ? new Set(state.catalog.map((session) => session.id)) : new Set();
-  clearReview(); invalidateConsent(); renderSessions();
+  renderSessions(); scheduleReview();
 });
 elements.mode.addEventListener("change", () => {
-  const hadPreview = Boolean(state.preview), index = state.reviewIndex;
   state.mode = elements.mode.value; state.disabledKinds.clear(); state.disabledMatches.clear();
-  clearReview(); invalidateConsent(); renderMode();
-  if (hadPreview) void buildPreview(index);
+  scheduleReview();
 });
-elements["sessions-prev"].addEventListener("click", () => { state.sessionPage--; renderSessions(); });
-elements["sessions-next"].addEventListener("click", () => { state.sessionPage++; renderSessions(); });
-elements["review-prev"].addEventListener("click", () => navigateReview(state.reviewIndex - 1));
-elements["review-next"].addEventListener("click", () => navigateReview(state.reviewIndex + 1));
+elements["session-search"].addEventListener("input", () => {
+  const query = elements["session-search"].value.trim().toLocaleLowerCase();
+  state.filtered = state.catalog.filter((s) => `${s.title || ""} ${s.firstUserMessage || ""} ${s.agentName}`.toLocaleLowerCase().includes(query));
+  state.sessionPage = 0; renderSessions();
+});
+elements["sessions-prev"].addEventListener("click", () => { state.sessionPage--; elements.sessions.scrollTop = 0; renderSessions(); });
+elements["sessions-next"].addEventListener("click", () => { state.sessionPage++; elements.sessions.scrollTop = 0; renderSessions(); });
+elements["review-prev"].addEventListener("click", () => navigateReview(state.catalog.findIndex((s) => s.id === state.activeId) - 1));
+elements["review-next"].addEventListener("click", () => navigateReview(state.catalog.findIndex((s) => s.id === state.activeId) + 1));
 elements["review-position"].addEventListener("change", () => navigateReview(Number(elements["review-position"].value) - 1));
 elements["messages-prev"].addEventListener("click", () => { state.messagePage--; renderConversations(); });
 elements["messages-next"].addEventListener("click", () => { state.messagePage++; renderConversations(); });
 elements["close-app"].addEventListener("click", closeApp);
-elements["preview-button"].addEventListener("click", () => buildPreview());
+elements["reset-custom"].addEventListener("click", scheduleReview);
+elements["retry-preview"].addEventListener("click", scheduleReview);
 elements["apply-custom"].addEventListener("click", applyCustomRedaction);
 elements.consent.addEventListener("change", updateDonateButton);
 elements["unredacted-ack"].addEventListener("change", updateDonateButton);
@@ -317,5 +402,6 @@ fetch("/api/catalog").then(async (response) => {
   state.catalog = body.sessions; state.chosen = new Set(body.sessions.map((session) => session.id));
   setHidden(elements.loading, true);
   if (!state.catalog.length) return setHidden(elements.empty, false);
-  setHidden(elements.workspace, false); renderSessions(); renderMode();
+  state.filtered = state.catalog; state.activeId = state.catalog[0].id;
+  setHidden(elements.workspace, false); renderSessions(); renderMode(); scheduleReview();
 }).catch((error) => { elements.loading.textContent = error.message; });

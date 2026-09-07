@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { Reviews, MAX_REVIEW_SESSIONS } from "./reviews.mjs";
+import { Reviews, MAX_REVIEW_SESSIONS, planBatches } from "./reviews.mjs";
 import http from "node:http";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -106,6 +106,10 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
       const reviewMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})(?:\/sessions\/(\d+)|\/(donate))?$/);
       if (reviewMatch) {
         const job = reviews.get(reviewMatch[1]);
+        if (request.method === "DELETE" && reviewMatch[2] === undefined && !reviewMatch[3]) {
+          await reviews.cancel(job);
+          return json(response, 200, { cancelled: true });
+        }
         if (request.method === "GET" && reviewMatch[2] !== undefined) return json(response, 200, await reviews.read(job, Number(reviewMatch[2])));
         if (request.method === "POST" && reviewMatch[2] !== undefined) {
           const body = await readBody(request, 2_000);
@@ -140,6 +144,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
         const disabledKinds = safeArray(body.disabledKinds, /^[a-z0-9-]{1,64}$/, 20);
         const disabledMatches = safeArray(body.disabledMatches, /^[a-f0-9]{24}$/, 5_000);
         const preview = await makeDonationPreview(catalog, sessionIds, { disabledKinds: body.mode === "custom" ? disabledKinds : [], disabledMatches: body.mode === "custom" ? disabledMatches : [], unredacted: body.mode === "unredacted" });
+        planBatches(preview.sessions.map(({ source, messages }) => ({ bytes: Buffer.byteLength(JSON.stringify({ source, messages })), messageCount: messages.length })));
         return json(response, 200, preview);
       }
       if (request.method === "POST" && url.pathname === "/api/donations") {

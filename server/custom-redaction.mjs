@@ -40,12 +40,16 @@ if (!isMainThread) parentPort.on("message", ({ messages, pattern, type }) => {
   try {
     const expression = new RegExp(type === "regex" ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
     let count = 0;
+    const locations = [];
     if (expression.test("")) throw new Error("The expression cannot match empty text.");
-    const redacted = messages.map(message => ({ ...message, text: message.text.replace(expression, match => {
+    const redacted = messages.map((message, messageIndex) => ({ ...message, text: message.text.replace(expression, (match, ...args) => {
       if (!match.length) throw new Error("The expression cannot match empty text.");
       count++;
+      // Named capture groups add a final object to the replace callback args.
+      const offset = typeof args.at(-1) === "object" ? args.at(-3) : args.at(-2);
+      locations.push({ messageIndex, value: match, before: message.text.slice(Math.max(0, offset - 80), offset), after: message.text.slice(offset + match.length, offset + match.length + 80) });
       return "[REDACTED]";
     }) }));
-    parentPort.postMessage({ messages: redacted, count });
+    parentPort.postMessage({ messages: redacted, count, locations });
   } catch (error) { parentPort.postMessage({ error: error.message }); }
 });

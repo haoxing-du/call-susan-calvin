@@ -107,6 +107,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
       const occurrenceMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})\/redactions\/([a-z-]+)\/([a-f0-9]{24})$/);
       if (request.method === "GET" && occurrenceMatch) return json(response, 200, await reviews.occurrence(reviews.get(occurrenceMatch[1]), occurrenceMatch[2], occurrenceMatch[3], Number(url.searchParams.get("position") || 0), () => response.destroyed));
       const customMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})\/custom(?:\/([0-9a-f-]{36}))?$/);
+      if (request.method === "GET" && customMatch?.[2]) return json(response, 200, await reviews.occurrence(reviews.get(customMatch[1]), "custom", customMatch[2], Number(url.searchParams.get("position") || 0), () => response.destroyed));
       if (customMatch && ["POST", "DELETE"].includes(request.method)) {
         if (customMatch[2] && request.method !== "DELETE") return json(response, 405, { error: "Use Remove to delete a custom redaction." });
         const job = reviews.get(customMatch[1]);

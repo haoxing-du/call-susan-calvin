@@ -1,3 +1,10 @@
+# Custom redaction occurrence navigation
+
+Clicking a custom rule now opens the same transcript occurrence viewer used by automatic redactions. The viewer shows the actual matched string, short context, and previous/next navigation across included sessions. Rules with no applied matches remain visible but cannot open an occurrence. A custom rule can also be removed directly from its context view.
+
+- All 41 tests and syntax checks pass. The new test covers named regex capture groups, multiple distinct and repeated matches within one message, two sessions, message 46, invalid positions, cancelled requests, snapshot stability, earlier-rule removal, selection changes, zero-match and paused rules, and exclusion of original matches and location metadata from donation payloads and summary polling.
+- Browser demo: clicked a custom regex matching both `the` and `research`, inspected its original matches, moved from a Claude Cowork session to a Codex session, and removed the rule from its context view. Donation inclusion remained unchanged.
+
 # Saved custom rule management
 
 Standard and custom redactions share a table with matching group headings, status, and instance columns. Each saved custom pattern has its own row, type label, and Remove action, including rules with zero matches. Plain text and regex replacements use `[REDACTED]`. Existing automatic markers retain their category labels.

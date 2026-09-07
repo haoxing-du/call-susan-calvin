@@ -176,6 +176,11 @@ test("custom redactions survive selection, mode and rule changes until a donatio
     assert.match(current.sessions[0].messages[1].text, /\[REDACTED\]/);
     const customRules = (await call(`/api/reviews/${job.id}`)).customRules;
     assert.equal(customRules.length, 2);
+    const customLocation = await call(`/api/reviews/${job.id}/custom/${customRules[0].id}?position=0`);
+    assert.equal(customLocation.value, "configuration mismatch");
+    assert.equal(customLocation.messageIndex, 1);
+    assert.equal(customLocation.sessionId, claude);
+    assert.equal(customLocation.total, 1);
     const removeRoute = `/api/reviews/${job.id}/custom/${customRules[0].id}`;
     assert.equal((await fetch(`${local.url}${removeRoute}`, { method: "DELETE", headers: { origin: "https://attacker.example" } })).status, 403);
     let removing = await call(removeRoute, "DELETE");

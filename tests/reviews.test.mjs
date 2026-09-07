@@ -340,3 +340,55 @@ test("removing a rule rolls back if it exposes text that makes a remaining expre
     assert.equal(job.redacting, false);
   } finally { await reviews.close(); }
 });
+
+test("custom occurrences preserve every actual regex match across pages and sessions without uploading context", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "susan-custom-locations-"));
+  const index = new Map();
+  for (const id of ["a", "b"]) {
+    const file = path.join(root, `${id}.jsonl`);
+    const messages = Array.from({ length: 46 }, (_, i) => ({ type: "user", message: { content: `Message ${i + 1}` } }));
+    messages[45].message.content = `${id}: invoice ID-42 then ID-99\nagain ID-42`;
+    await fs.writeFile(file, messages.map(message => JSON.stringify(message)).join("\n"));
+    index.set(id, { file, agent: "claude", agentName: "Claude Code", startedAt: "2026-09-01" });
+  }
+  const reviews = new Reviews({ index }, { root });
+  const prepare = async (ids, mode = "custom") => {
+    const result = await reviews.create(ids, { mode }); const job = reviews.get(result.id); await job.task;
+    assert.equal(job.status, "ready"); return job;
+  };
+  try {
+    let job = await prepare(["a", "b"]);
+    await reviews.redact(job, { pattern: "invoice", type: "text" });
+    await reviews.redact(job, { pattern: "(?<prefix>ID)-(?<number>\\d+)", type: "regex" });
+    const [literal, regex] = reviews.summary(job).customRules;
+    assert.equal((await reviews.occurrence(job, "custom", literal.id)).value, "invoice");
+    const places = await Promise.all(Array.from({ length: 6 }, (_, position) => reviews.occurrence(job, "custom", regex.id, position)));
+    assert.deepEqual(places.map(place => place.value), ["ID-42", "ID-99", "ID-42", "ID-42", "ID-99", "ID-42"]);
+    assert.deepEqual(places.map(place => place.sessionId), ["a", "a", "a", "b", "b", "b"]);
+    assert.ok(places.every(place => place.total === 6 && place.messageIndex === 45 && place.enabled && place.pattern === regex.pattern));
+    assert.equal(places[0].before, "a: [REDACTED] ");
+    assert.equal(places[1].after, "\nagain ID-42");
+    assert.equal(places[2].before, "a: [REDACTED] ID-42 then ID-99\nagain ");
+    await assert.rejects(reviews.occurrence(job, "custom", regex.id, 6), /not found/);
+    await assert.rejects(reviews.occurrence(job, "custom", regex.id, -1), /available/);
+    await assert.rejects(reviews.occurrence(job, "custom", regex.id, 0.5), /available/);
+    await assert.rejects(reviews.occurrence(job, "custom", regex.id, 0, () => true), /changed/);
+    assert.doesNotMatch(JSON.stringify(reviews.summary(job)), /ID-42|locations|messageIndex/);
+    const donation = await reviews.donation(job, [0, 1], { researchDonation: true }, "test", 0);
+    assert.doesNotMatch(JSON.stringify(donation), /ID-42|ID-99|locations|customRules|invoice/);
+    await fs.writeFile(index.get("a").file, "");
+    assert.deepEqual(await reviews.occurrence(job, "custom", regex.id, 0), places[0]);
+    await reviews.removeCustom(job, literal.id);
+    assert.equal((await reviews.occurrence(job, "custom", regex.id)).before, "a: invoice ", "locations rebuild from the snapshot after removing an earlier rule");
+    job = await prepare(["b"]);
+    assert.equal((await reviews.occurrence(job, "custom", regex.id)).total, 3);
+    await reviews.redact(job, { pattern: "no matches here", type: "text" });
+    const empty = reviews.summary(job).customRules.at(-1);
+    await assert.rejects(reviews.occurrence(job, "custom", empty.id), /No applied occurrences/);
+    job = await prepare(["b"], "standard");
+    await assert.rejects(reviews.occurrence(job, "custom", regex.id), /No applied occurrences/);
+    job = await prepare(["b"]);
+    await reviews.removeCustom(job, regex.id);
+    await assert.rejects(reviews.occurrence(job, "custom", regex.id), /No applied occurrences/);
+  } finally { await reviews.close(); await fs.rm(root, { recursive: true, force: true }); }
+});

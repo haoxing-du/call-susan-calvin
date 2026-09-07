@@ -33,13 +33,15 @@ export class Reviews {
   customRedactionCount() { return this.customRedactions.length; }
   async applyPatterns(preview, options, redactor, rules = this.customRedactions) {
     preview.customDetectionCount = 0;
-    preview.customRules = rules.map(rule => ({ id: rule.id, count: 0 }));
+    preview.customRules = rules.map(rule => ({ id: rule.id, count: 0, locations: [] }));
     if (options.mode === "custom") {
       for (const session of preview.sessions) {
         for (const rule of rules) {
           const result = await redactor.redact(session.messages, rule.pattern, rule.type);
           session.messages = result.messages; preview.customDetectionCount += result.count;
-          preview.customRules.find(item => item.id === rule.id).count += result.count;
+          const inventory = preview.customRules.find(item => item.id === rule.id);
+          inventory.count += result.count;
+          for (const location of result.locations) inventory.locations.push({ ...location, sessionId: session.sessionId });
         }
         if (rules.length) session.summary = sessionSummary(session.messages);
       }
@@ -139,15 +141,18 @@ export class Reviews {
   async occurrence(job, kind, matchId, position = 0, cancelled = () => false) {
     if (job.status !== "ready" || job.redacting) throw new Error("Wait for the preview to finish, then retry.");
     if (!Number.isSafeInteger(position) || position < 0) throw new Error("Choose an available occurrence.");
+    const customRule = kind === "custom" ? job.customRules.find(rule => rule.id === matchId) : null;
+    if (kind === "custom" && (!customRule?.enabled || !customRule.count)) throw new Error("No applied occurrences for this custom redaction.");
     let total = 0, selected;
     for (let index = 0; index < job.sessions.length; index++) {
       if (cancelled() || job.cancelled) throw new Error("Review changed. Reopen the matched value.");
       const preview = await this.read(job, index);
-      const match = preview.redactions.find(item => item.kind === kind)?.matches.find(match => match.id === matchId);
+      const match = customRule ? preview.customRules.find(rule => rule.id === matchId)
+        : preview.redactions.find(item => item.kind === kind)?.matches.find(match => match.id === matchId);
       if (!match) continue;
       if (position >= total && position < total + match.count) {
         const location = match.locations?.[position - total];
-        if (location) selected = { ...location, value: match.value, enabled: match.enabled };
+        if (location) selected = { ...location, ...(customRule ? { enabled: true, pattern: customRule.pattern } : { value: match.value, enabled: match.enabled }) };
       }
       total += match.count;
     }

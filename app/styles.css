@@ -161,3 +161,6 @@ footer { padding: 20px 0; border-top: 1px solid var(--line); color: var(--muted)
 .custom-rule-type { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
 .remove-custom { display: block; margin-top: 4px; padding: 6px 8px; font-size: 12px; }
 .bundle-redactions td.custom-rules-empty { text-align: left; color: var(--muted); }
+
+.custom-rule-link { display: block; max-width: 100%; padding: 4px 0; border: 0; background: transparent; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.custom-rule-link:disabled { background: transparent; text-decoration: none; cursor: default; }

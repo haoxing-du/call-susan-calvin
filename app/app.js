@@ -98,6 +98,7 @@ function lockControls(locked) {
   for (const control of elements.workspace.querySelectorAll("input, select, button")) control.disabled = locked;
   if (!locked) {
     for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating || state.review?.status !== "ready" || !state.chosen.size;
+    for (const control of elements["bundle-redactions"].querySelectorAll("button[data-custom-occurrences]")) control.disabled = state.updating || state.review?.status !== "ready" || state.mode !== "custom" || !Number(control.dataset.customOccurrences);
     for (const control of elements["bundle-redactions"].querySelectorAll("button[data-custom-id]")) control.disabled = state.updating || state.review?.status !== "ready" || state.mode !== "custom";
     for (const control of elements["bundle-redactions"].querySelectorAll("input")) control.disabled = state.updating || state.review?.status !== "ready" || (control.dataset.redactionKey.startsWith("match:") && state.disabledKinds.has(control.dataset.kind));
     elements.consent.disabled = state.updating || !state.chosen.size || state.review?.status !== "ready";
@@ -105,6 +106,7 @@ function lockControls(locked) {
     elements["occurrence-prev"].disabled = state.occurrenceLoading || !state.occurrence || state.occurrence.position <= 0;
     elements["occurrence-next"].disabled = state.occurrenceLoading || !state.occurrence || state.occurrence.position + 1 >= state.occurrence.total;
     elements["occurrence-redact"].disabled = state.updating || state.occurrenceLoading || state.disabledKinds.has(state.occurrence?.kind);
+    elements["occurrence-remove-custom"].disabled = state.updating || state.occurrenceLoading || state.mode !== "custom" || state.occurrence?.kind !== "custom";
     renderSelectionCount(); updateDonateButton(); updateNavigation();
   }
 }
@@ -303,7 +305,8 @@ async function openOccurrence(kind, matchId, position = 0) {
   const reviewId = state.review.id;
   elements["occurrence-error"].textContent = ""; setError(); lockControls(false);
   try {
-    const result = await api(`/api/reviews/${reviewId}/redactions/${kind}/${matchId}?position=${position}`, "GET", null, controller.signal);
+    const route = kind === "custom" ? `custom/${matchId}` : `redactions/${kind}/${matchId}`;
+    const result = await api(`/api/reviews/${reviewId}/${route}?position=${position}`, "GET", null, controller.signal);
     if (controller.signal.aborted || state.review?.id !== reviewId) return;
     elements["bundle-details"].open = false; elements["custom-redaction"].open = false;
     // Reveal the location's catalog page without changing donation inclusion.
@@ -325,11 +328,12 @@ function renderOccurrence() {
   setHidden(elements.occurrence, !match);
   if (!match) return;
   elements["occurrence-position"].textContent = `${match.position + 1} of ${match.total}`;
-  elements["occurrence-label"].textContent = `Message ${match.messageIndex + 1} · Match context (local only)`;
+  elements["occurrence-label"].textContent = `Message ${match.messageIndex + 1} · ${match.kind === "custom" ? `Custom redaction: ${match.pattern}` : "Match context (local only)"}`;
   const marked = document.createElement("mark"); marked.textContent = match.value;
   elements["occurrence-context"].replaceChildren(match.before, marked, match.after);
   elements["occurrence-redact"].checked = match.enabled;
-  setHidden(elements["occurrence-toggle"], state.mode !== "custom");
+  setHidden(elements["occurrence-toggle"], state.mode !== "custom" || match.kind === "custom");
+  setHidden(elements["occurrence-remove-custom"], state.mode !== "custom" || match.kind !== "custom");
 }
 
 function renderConversations() {
@@ -438,7 +442,11 @@ function renderOverview() {
       const row = document.createElement("tr"), name = document.createElement("th"); name.scope = "row";
       const pattern = document.createElement("code"); pattern.className = "custom-rule-pattern"; pattern.textContent = rule.pattern;
       const type = document.createElement("span"); type.className = "custom-rule-type"; type.textContent = rule.type === "regex" ? "Regular expression" : "Plain text";
-      name.append(pattern, type);
+      const inspect = document.createElement("button"); inspect.className = "custom-rule-link"; inspect.dataset.customOccurrences = rule.count;
+      inspect.setAttribute("aria-label", `View occurrences of custom redaction: ${rule.pattern}`);
+      inspect.title = rule.enabled && rule.count ? "View matches in the transcript" : "No applied matches in included sessions";
+      inspect.append(pattern); inspect.addEventListener("click", () => { void openOccurrence("custom", rule.id); });
+      name.append(inspect, type);
       const status = document.createElement("td"); status.append(rule.enabled ? "On" : "Off");
       if (state.mode === "custom") {
         const remove = document.createElement("button"); remove.className = "remove-custom"; remove.textContent = "Remove"; remove.dataset.customId = rule.id;
@@ -505,11 +513,13 @@ async function changeCustomRedactions(reset = false, removeId = "") {
   } catch (error) {
     elements["custom-status"].textContent = "";
     elements["custom-error"].textContent = error.message;
+    elements["custom-redaction"].open = true;
     if (!reset && !removeId) elements["custom-pattern"].setAttribute("aria-invalid", "true");
   } finally {
     state.busy = false; lockControls(false);
     if (removeId) {
       const next = elements["bundle-redactions"].querySelector("button[data-custom-id]");
+      if (!next) elements["custom-redaction"].open = true;
       (next || elements["custom-pattern"]).focus({ preventScroll: true });
     } else elements[reset ? "reset-custom" : "custom-pattern"].focus({ preventScroll: true });
   }
@@ -633,9 +643,10 @@ void loadCatalog();
 
 elements["occurrence-prev"].addEventListener("click", () => { if (state.occurrence) void openOccurrence(state.occurrence.kind, state.occurrence.matchId, state.occurrence.position - 1); });
 elements["occurrence-next"].addEventListener("click", () => { if (state.occurrence) void openOccurrence(state.occurrence.kind, state.occurrence.matchId, state.occurrence.position + 1); });
+elements["occurrence-remove-custom"].addEventListener("click", () => { if (state.occurrence?.kind === "custom") void changeCustomRedactions(false, state.occurrence.matchId); });
 elements["occurrence-redact"].addEventListener("change", () => {
   const match = state.occurrence;
-  if (!match) return;
+  if (!match || match.kind === "custom") return;
   state.occurrenceFocus = true;
   if (elements["occurrence-redact"].checked) state.disabledMatches.delete(match.matchId);
   else state.disabledMatches.set(match.matchId, match.kind);

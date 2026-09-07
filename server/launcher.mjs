@@ -106,6 +106,14 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
       if (request.method === "GET" && categoryMatch) return json(response, 200, await reviews.matches(reviews.get(categoryMatch[1]), categoryMatch[2], () => response.destroyed));
       const occurrenceMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})\/redactions\/([a-z-]+)\/([a-f0-9]{24})$/);
       if (request.method === "GET" && occurrenceMatch) return json(response, 200, await reviews.occurrence(reviews.get(occurrenceMatch[1]), occurrenceMatch[2], occurrenceMatch[3], Number(url.searchParams.get("position") || 0), () => response.destroyed));
+      const customMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})\/custom$/);
+      if (customMatch && ["POST", "DELETE"].includes(request.method)) {
+        const job = reviews.get(customMatch[1]);
+        const body = request.method === "POST" ? await readBody(request, 2_000) : null;
+        if (job.status !== "ready" || job.redacting || job.options.mode !== "custom") return json(response, 409, { error: "Wait for a ready preview in Customize redactions mode." });
+        job.customTask = (body ? reviews.redact(job, body) : reviews.resetCustom(job)).catch(error => { job.customError = error.message; });
+        return json(response, 202, reviews.summary(job));
+      }
       const reviewMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})(?:\/sessions\/(\d+)|\/(donate))?$/);
       if (reviewMatch) {
         const job = reviews.get(reviewMatch[1]);
@@ -114,11 +122,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
           return json(response, 200, { cancelled: true });
         }
         if (request.method === "GET" && reviewMatch[2] !== undefined) return json(response, 200, await reviews.read(job, Number(reviewMatch[2])));
-        if (request.method === "DELETE" && reviewMatch[2] !== undefined) return json(response, 200, await reviews.resetCustom(job, Number(reviewMatch[2])));
-        if (request.method === "POST" && reviewMatch[2] !== undefined) {
-          const body = await readBody(request, 2_000);
-          return json(response, 200, await reviews.redact(job, Number(reviewMatch[2]), body));
-        }
+        if (reviewMatch[2] !== undefined) return json(response, 405, { error: "Sessions are read-only. Custom redactions apply across all included sessions." });
         if (request.method === "GET" && !reviewMatch[3]) return json(response, 200, reviews.summary(job));
         if (request.method === "POST" && reviewMatch[3] === "donate") {
           const body = await readBody(request);

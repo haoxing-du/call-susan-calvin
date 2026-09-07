@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { makeDonationPreview, sessionSummary } from "./donation-preview.mjs";
 import { sanitizeDonation } from "./donation-schema.mjs";
-import { redactMessages } from "./custom-redaction.mjs";
+import { createRedactor } from "./custom-redaction.mjs";
 import { REDACTION_KINDS } from "./privacy.mjs";
 
 // Limits apply to one upload, never to the entire donation. Sessions stay intact.
@@ -29,22 +29,25 @@ export function planBatches(sessions) {
 }
 
 export class Reviews {
-  constructor(catalog, { preview = makeDonationPreview, root = os.tmpdir() } = {}) { this.catalog = catalog; this.preview = preview; this.root = root; this.jobs = new Map(); this.customRedactions = new Map(); this.savedPatternCount = 0; }
-  customRedactionCount() { return this.savedPatternCount; }
-  async makePreview(ids, options) {
-    const preview = await this.preview(this.catalog, ids, options);
+  constructor(catalog, { preview = makeDonationPreview, root = os.tmpdir() } = {}) { this.catalog = catalog; this.preview = preview; this.root = root; this.jobs = new Map(); this.customRedactions = []; }
+  customRedactionCount() { return this.customRedactions.length; }
+  async applyPatterns(preview, options, redactor) {
     preview.customDetectionCount = 0;
     if (options.mode === "custom") {
       for (const session of preview.sessions) {
-        const rules = this.customRedactions.get(session.sessionId) || [];
-        for (const rule of rules) {
-          const result = await redactMessages(session.messages, rule.pattern, rule.type);
+        for (const rule of this.customRedactions) {
+          const result = await redactor.redact(session.messages, rule.pattern, rule.type);
           session.messages = result.messages; preview.customDetectionCount += result.count;
         }
-        if (rules.length) session.summary = sessionSummary(session.messages);
+        if (this.customRedactions.length) session.summary = sessionSummary(session.messages);
       }
     }
     return { ...preview, customRedactionCount: this.customRedactionCount() };
+  }
+  async makePreview(ids, options) {
+    const redactor = createRedactor();
+    try { return await this.applyPatterns(await this.preview(this.catalog, ids, options), options, redactor); }
+    finally { await redactor.close(); }
   }
   async create(ids, options) {
     if (!["standard", "custom", "unredacted"].includes(options.mode)) throw new Error("Choose a donation mode.");
@@ -61,7 +64,7 @@ export class Reviews {
     return this.summary(job);
   }
   summary(job) {
-    return { id: job.id, status: job.status, total: job.total, processed: job.processed, ...(job.status === "ready" ? { sessions: job.sessions } : {}), ...this.overview(job), uploaded: job.uploaded, batches: job.batches?.length || 0, donationId: job.donationId, error: job.error };
+    return { redacting: Boolean(job.redacting), redactedSessions: job.redactedSessions || 0, customError: job.customError || "", customCount: job.customCount || 0, id: job.id, status: job.status, total: job.total, processed: job.processed, ...(job.status === "ready" && !job.redacting ? { sessions: job.sessions } : {}), ...this.overview(job), uploaded: job.uploaded, batches: job.batches?.length || 0, donationId: job.donationId, error: job.error };
   }
   overview(job) { return { messages: job.messages, detections: job.detections, customDetections: job.customDetections, redactions: job.redactions, customRedactionCount: this.customRedactionCount() }; }
   countRedactions(job, preview, direction = 1) {
@@ -73,22 +76,28 @@ export class Reviews {
   }
   get(id) { const job = this.jobs.get(id); if (!job) throw new Error("Review expired. Prepare a new preview."); return job; }
   async prepare(job, ids) {
-    for (const id of ids) {
-      if (job.cancelled) return;
-      const preview = await this.makePreview([id], job.options);
-      if (job.cancelled) return;
-      if (preview.sessions.length !== 1) throw new Error("A selected session no longer contains readable messages. Refresh the session selection.");
-      const session = preview.sessions[0];
-      const bytes = byteLength({ source: session.source, messages: session.messages });
-      planBatches([{ bytes, messageCount: session.messages.length }]);
-      const index = job.sessions.length;
-      await fs.writeFile(path.join(job.folder, `${index}.json`), JSON.stringify(preview), { mode: 0o600, flag: "wx" });
-      this.countRedactions(job, preview);
-      job.sessions.push({ id, label: session.label, summary: session.summary, source: session.source, bytes, messageCount: session.messages.length, detections: preview.detectionCount });
-      job.messages += session.messages.length; job.detections += preview.detectionCount; job.processed++;
-    }
-    job.batches = planBatches(job.sessions);
-    job.status = "ready";
+    const redactor = createRedactor();
+    try {
+      for (const id of ids) {
+        if (job.cancelled) return;
+        const base = await this.preview(this.catalog, [id], job.options);
+        // Keep the automatic preview so resetting never rereads changed source files.
+        await fs.writeFile(path.join(job.folder, `${job.sessions.length}.base.json`), JSON.stringify(base), { mode: 0o600, flag: "wx" });
+        const preview = await this.applyPatterns(base, job.options, redactor);
+        if (job.cancelled) return;
+        if (preview.sessions.length !== 1) throw new Error("A selected session no longer contains readable messages. Refresh the session selection.");
+        const session = preview.sessions[0];
+        const bytes = byteLength({ source: session.source, messages: session.messages });
+        planBatches([{ bytes, messageCount: session.messages.length }]);
+        const index = job.sessions.length;
+        await fs.writeFile(path.join(job.folder, `${index}.json`), JSON.stringify(preview), { mode: 0o600, flag: "wx" });
+        this.countRedactions(job, preview);
+        job.sessions.push({ id, label: session.label, summary: session.summary, source: session.source, bytes, messageCount: session.messages.length, detections: preview.detectionCount });
+        job.messages += session.messages.length; job.detections += preview.detectionCount; job.processed++;
+      }
+      job.batches = planBatches(job.sessions);
+      job.status = "ready";
+    } finally { await redactor.close(); }
   }
   async cancel(job) {
     if (!["preparing", "ready", "error"].includes(job.status) || job.redacting) throw new Error("Wait for the current operation to finish.");
@@ -139,7 +148,7 @@ export class Reviews {
     if (!selected) throw new Error("Occurrence not found. Reopen the matched value.");
     return { ...selected, total, position };
   }
-  async writeSession(job, index, preview) {
+  async writeSession(job, index, preview, replan = true) {
     const previous = await this.read(job, index);
     const session = preview.sessions[0];
     const normalized = sanitizeDonation({ donationRunId: job.id, redactionMode: "standard", consent: { researchDonation: true }, sessions: [{ source: session.source, messages: session.messages }] });
@@ -157,43 +166,51 @@ export class Reviews {
     job.sessions[index].detections = preview.detectionCount;
     job.sessions[index].bytes = bytes;
     job.sessions[index].summary = session.summary;
-    job.batches = planBatches(job.sessions);
+    if (replan) job.batches = planBatches(job.sessions);
   }
-  async resetCustom(job, index) {
+  async resetCustom(job) { return this.changeCustom(job, null); }
+  async redact(job, rule) { return this.changeCustom(job, rule); }
+  async changeCustom(job, rule) {
     if (job.status !== "ready" || job.redacting) throw new Error("Wait for the current operation to finish.");
-    if (job.options.mode !== "custom") throw new Error("Choose Customize redactions to reset a redaction.");
-    job.redacting = true;
+    if (job.options.mode !== "custom") throw new Error("Choose Customize redactions to change custom redactions.");
+    job.redacting = true; job.redactedSessions = 0; job.customError = ""; job.customCount = 0;
+    const redactor = createRedactor();
+    let folder;
     try {
-      await this.read(job, index);
-      const id = job.sessions[index].id;
-      const preview = await this.preview(this.catalog, [id], job.options);
-      preview.customDetectionCount = 0;
-      if (preview.sessions.length !== 1) throw new Error("This session is no longer readable. Deselect it to continue.");
-      await this.writeSession(job, index, preview);
-      this.savedPatternCount -= this.customRedactions.get(id)?.length || 0;
-      this.customRedactions.delete(id);
-      return { preview: { ...preview, customRedactionCount: this.customRedactionCount() }, overview: this.overview(job) };
-    } finally { job.redacting = false; }
-  }
-  async redact(job, index, { pattern, type }) {
-    if (job.status !== "ready" || job.redacting) throw new Error("Wait for the current operation to finish.");
-    if (job.options.mode !== "custom") throw new Error("Choose Customize redactions to add a redaction.");
-    job.redacting = true;
-    try {
-      const preview = await this.read(job, index);
-      const original = preview.sessions[0];
-      const { messages, count } = await redactMessages(original.messages, pattern, type);
-      // Keep the exact reviewed text. Normalization happens only at encryption.
-      original.messages = messages;
-      preview.customDetectionCount = (preview.customDetectionCount || 0) + count;
-      await this.writeSession(job, index, preview);
-      if (count) {
-        const id = job.sessions[index].id;
-        const rules = this.customRedactions.get(id) || [];
-        rules.push({ pattern, type }); this.customRedactions.set(id, rules); this.savedPatternCount++;
+      if (rule) await redactor.redact([], rule.pattern, rule.type);
+      folder = await fs.mkdtemp(path.join(this.root, "susan-calvin-review-"));
+      await fs.chmod(folder, 0o700);
+      const staged = { ...job, folder, sessions: structuredClone(job.sessions), redactions: structuredClone(job.redactions) };
+      let count = 0;
+      // Commit only after every session succeeds. A bad pattern cannot leave a
+      // donation partly redacted. Memory is bounded to one session at a time.
+      for (let index = 0; index < job.sessions.length; index++) {
+        await fs.copyFile(path.join(job.folder, `${index}.json`), path.join(folder, `${index}.json`));
+        await fs.copyFile(path.join(job.folder, `${index}.base.json`), path.join(folder, `${index}.base.json`));
+        const preview = rule ? await this.read(job, index) : JSON.parse(await fs.readFile(path.join(folder, `${index}.base.json`), "utf8"));
+        if (rule) {
+          const result = await redactor.redact(preview.sessions[0].messages, rule.pattern, rule.type);
+          preview.sessions[0].messages = result.messages;
+          preview.customDetectionCount = (preview.customDetectionCount || 0) + result.count;
+          count += result.count;
+        } else preview.customDetectionCount = 0;
+        await this.writeSession(staged, index, preview, false);
+        job.redactedSessions++;
       }
-      return { preview: { ...preview, customRedactionCount: this.customRedactionCount() }, count, overview: this.overview(job) };
-    } finally { job.redacting = false; }
+      staged.batches = planBatches(staged.sessions);
+      const previousFolder = job.folder;
+      for (const key of ["folder", "sessions", "messages", "detections", "customDetections", "redactions", "batches"]) job[key] = staged[key];
+      folder = null;
+      if (rule) this.customRedactions.push({ pattern: rule.pattern, type: rule.type });
+      else this.customRedactions = [];
+      job.customCount = count;
+      await fs.rm(previousFolder, { recursive: true, force: true });
+      return { count, overview: this.overview(job) };
+    } finally {
+      await redactor.close();
+      if (folder) await fs.rm(folder, { recursive: true, force: true });
+      job.redacting = false;
+    }
   }
   async donation(job, indices, consent, version, batchIndex) {
     const sessions = [];
@@ -212,6 +229,7 @@ export class Reviews {
   async close() {
     for (const job of this.jobs.values()) {
       await job.task;
+      await job.customTask;
       await fs.rm(job.folder, { recursive: true, force: true });
     }
     this.jobs.clear();

@@ -35,14 +35,13 @@
           <p id="bundle-status" class="hint" role="status"></p>
             <details id="custom-redaction" class="custom hidden" open>
               <summary>Add a custom redaction</summary>
-              <label class="custom-target">Apply to session<select id="custom-session"></select></label>
               <div class="custom-fields">
                 <label>Redaction type<select id="custom-mode"><option value="text">Plain text</option><option value="regex">Regular expression</option></select></label>
                 <label>Text or pattern to remove<input id="custom-pattern" maxlength="200" placeholder="Enter text or a regular expression" aria-describedby="custom-error"></label>
                 <button id="apply-custom" class="secondary">Redact matches</button>
               </div>
-              <p class="hint">Replaces matches with [REDACTED CUSTOM]. Saved for this session until the app stops.</p>
-              <button id="reset-custom" class="secondary">Reset this session’s custom redactions</button>
+              <p class="hint">Replaces matches with [REDACTED CUSTOM]. Applies across all included sessions until the app stops.</p>
+              <button id="reset-custom" class="secondary">Reset all custom redactions</button>
               <p id="custom-error" class="error"></p>
               <p id="custom-status" class="hint" role="status"></p>
             </details>

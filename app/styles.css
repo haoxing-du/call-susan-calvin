@@ -148,8 +148,6 @@ footer { padding: 20px 0; border-top: 1px solid var(--line); color: var(--muted)
 }
 
 .custom > summary { font-weight: 600; margin-bottom: 12px; }
-.custom-target { display: grid; gap: 6px; margin-bottom: 12px; font-size: 12px; }
-.custom-target select { width: 100%; min-width: 0; padding: 8px; }
 .match-open { min-width: 0; padding: 2px 0; border: 0; background: transparent; font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .occurrence { margin-bottom: 16px; padding: 12px; border: 1px solid var(--line); background: #f3efe6; }
 .occurrence pre { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }

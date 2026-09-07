@@ -24,7 +24,7 @@ test("disk snapshots support more than 250 sessions, preserve transcripts, and c
     assert.equal((await fs.stat(job.folder)).mode & 0o777, 0o700);
     assert.equal((await fs.stat(`${job.folder}/0.json`)).mode & 0o777, 0o600);
     const before = await reviews.read(job, 0);
-    await assert.rejects(reviews.redact(job, 0, { pattern: "complete", type: "text" }), /Customize redactions/);
+    await assert.rejects(reviews.redact(job, { pattern: "complete", type: "text" }), /Customize redactions/);
     assert.deepEqual((await reviews.read(job, 0)).sessions, before.sessions);
     const consent = { researchDonation: true, consentedAt: "2026-09-01T00:00:00Z" };
     const batch = await reviews.donation(job, job.batches[0], consent, "0.2.0", 0);
@@ -83,16 +83,16 @@ test("custom redaction only replaces matches with a fixed marker and preserves e
   const job = reviews.get(result.id);
   try {
     await job.task;
-    const result = await reviews.redact(job, 0, { pattern: "complete", type: "text", replacement: "Invented answer", messages: [] });
+    const result = await reviews.redact(job, { pattern: "complete", type: "text", replacement: "Invented answer", messages: [] });
     assert.equal(result.count, 1);
-    assert.deepEqual(result.preview.sessions[0].messages, [{ ...message, text: "Keep the [REDACTED CUSTOM] session" }, { role: "assistant", text: "Answer 0" }]);
-    assert.deepEqual((await reviews.read(job, 0)).sessions, result.preview.sessions);
-    await assert.rejects(reviews.redact(job, 0, { pattern: "(?=Keep)", type: "regex" }), /empty text/);
-    const second = await reviews.redact(job, 0, { pattern: "Answer [0-9]+", type: "regex" });
-    assert.equal(second.preview.sessions[0].messages[1].text, "[REDACTED CUSTOM]");
-    assert.equal(second.preview.sessions[0].messages.length, 2);
+    assert.deepEqual((await reviews.read(job, 0)).sessions[0].messages, [{ ...message, text: "Keep the [REDACTED CUSTOM] session" }, { role: "assistant", text: "Answer 0" }]);
+
+    await assert.rejects(reviews.redact(job, { pattern: "(?=Keep)", type: "regex" }), /empty text/);
+    const second = await reviews.redact(job, { pattern: "Answer [0-9]+", type: "regex" });
+    assert.equal((await reviews.read(job, 0)).sessions[0].messages[1].text, "[REDACTED CUSTOM]");
+    assert.equal((await reviews.read(job, 0)).sessions[0].messages.length, 2);
     job.status = "uploading";
-    await assert.rejects(reviews.redact(job, 0, { pattern: "Keep", type: "text" }), /finish/);
+    await assert.rejects(reviews.redact(job, { pattern: "Keep", type: "text" }), /finish/);
   } finally { await reviews.close(); }
 });
 
@@ -143,22 +143,23 @@ test("the donation overview aggregates occurrences across every included session
     assert.equal(summary.redactions.find(r => r.kind === "phone").count, 0, "zero-match rules remain visible and active");
     assert.ok(JSON.stringify(summary.redactions).length < 2000, "aggregate metadata stays bounded with a large catalog");
     assert.ok(summary.redactions.every(r => !('matches' in r)), "the overview needs counts, not every private matched value");
-    let changed = await reviews.redact(job, 0, { pattern: "complete", type: "text" });
-    assert.equal(changed.overview.customDetections, 1);
-    changed = await reviews.redact(job, 1, { pattern: "complete", type: "text" });
-    assert.equal(changed.overview.customDetections, 2);
-    const reset = await reviews.resetCustom(job, 0);
-    assert.equal(reset.overview.customDetections, 1);
+    let changed = await reviews.redact(job, { pattern: "complete", type: "text" });
+    assert.equal(changed.overview.customDetections, 501);
+    changed = await reviews.redact(job, { pattern: "complete", type: "text" });
+    assert.equal(changed.overview.customDetections, 501);
+    const reset = await reviews.resetCustom(job);
+    assert.equal(reset.overview.customDetections, 0);
     assert.equal(reset.overview.detections, 1002, "resetting custom redactions leaves automatic totals intact");
+    await reviews.redact(job, { pattern: "complete", type: "text" });
     result = await reviews.create(["1", "2"], { mode: "custom", disabledKinds: ["email"] });
     job = reviews.get(result.id); await job.task;
     let current = reviews.summary(job);
     assert.deepEqual(current.redactions.find(r => r.kind === "email"), { kind: "email", label: "Email addresses", count: 4, enabledCount: 0, enabled: false });
-    assert.equal(current.customDetections, 1, "custom counts are recalculated only for included sessions");
+    assert.equal(current.customDetections, 2, "custom counts are recalculated only for included sessions");
     result = await reviews.create(["2"], { mode: "custom" });
     job = reviews.get(result.id); await job.task; current = reviews.summary(job);
     assert.equal(current.detections, 2);
-    assert.equal(current.customDetections, 0, "excluded sessions never contribute redactions");
+    assert.equal(current.customDetections, 1, "excluded sessions never contribute redactions");
     result = await reviews.create(["1", "2"], { mode: "unredacted" });
     job = reviews.get(result.id); await job.task; current = reviews.summary(job);
     assert.equal(current.detections + current.customDetections, 0);
@@ -241,7 +242,7 @@ test("occurrences locate every match across messages and sessions, stay local, a
     await assert.rejects(reviews.occurrence(job, "payment-number", match.id, 0, () => true), /changed/);
     const donation = await reviews.donation(job, [0, 1], { researchDonation: true }, "test", 0);
     assert.doesNotMatch(JSON.stringify(donation), /locations|invoice 4242424242424242/);
-    await reviews.redact(job, 0, { pattern: "invoice", type: "text" });
+    await reviews.redact(job, { pattern: "invoice", type: "text" });
     assert.equal((await reviews.occurrence(job, "payment-number", match.id)).messageIndex, 45);
     job = await prepare(["b"], { disabledMatches: [match.id] });
     const disabled = await reviews.occurrence(job, "payment-number", match.id, 1);
@@ -251,4 +252,32 @@ test("occurrences locate every match across messages and sessions, stay local, a
     await fs.writeFile(index.get("b").file, "");
     assert.deepEqual(await reviews.occurrence(job, "payment-number", match.id, 1), disabled, "locations describe the reviewed snapshot, not later source changes");
   } finally { await reviews.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+
+test("global patterns cover later inclusions, reset snapshots exactly, and roll back a failure in a later session", async () => {
+  let changed = false;
+  const reviews = new Reviews(catalog, { preview: async (_catalog, [id]) => ({ detectionCount: 0, redactions: [], sessions: [{ sessionId: id, source: "codex", label: id, messages: [{ ...message, text: changed ? "Changed source" : id === "1" ? "bad" : "complete" }] }] }) });
+  const prepare = async ids => { const result = await reviews.create(ids, { mode: "custom" }); const job = reviews.get(result.id); await job.task; return job; };
+  try {
+    let job = await prepare(["0"]);
+    await reviews.redact(job, { pattern: "complete", type: "text" });
+    job = await prepare(["0", "2"]);
+    assert.equal(job.customDetections, 2, "newly included sessions inherit rules");
+    changed = true;
+    await reviews.resetCustom(job);
+    assert.equal((await reviews.read(job, 1)).sessions[0].messages[0].text, "complete", "reset uses the reviewed source snapshot");
+    assert.equal(reviews.customRedactionCount(), 0);
+    changed = false;
+    job = await prepare(["0", "1"]);
+    const folder = job.folder;
+    await assert.rejects(reviews.redact(job, { pattern: "complete|(?=bad)", type: "regex" }), /empty text/);
+    assert.equal(job.folder, folder);
+    assert.equal(job.redacting, false);
+    assert.equal(job.customDetections, 0);
+    assert.equal(reviews.customRedactionCount(), 0);
+    assert.equal((await reviews.read(job, 0)).sessions[0].messages[0].text, "complete", "earlier sessions are unchanged after a later failure");
+    await reviews.redact(job, { pattern: "later", type: "text" });
+    assert.equal(reviews.customRedactionCount(), 1, "zero-match rules are saved for later inclusions");
+  } finally { await reviews.close(); }
 });

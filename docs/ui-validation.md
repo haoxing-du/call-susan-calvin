@@ -1,3 +1,11 @@
+# Global custom redactions (0.4.0)
+
+Custom text and regex rules now apply across all included sessions. The session picker is removed. Rules also apply to later inclusions; reset clears every custom rule and preserves automatic choices. Older entries below describe previous releases.
+
+- All 38 tests and syntax checks pass. Coverage includes 501-session aggregate counts, later inclusions, mode changes, global reset, cross-origin rejection, immutable session endpoints, and rollback when a pattern fails in a later session.
+- Changes are staged on disk one session at a time and committed only after the full bundle succeeds. Reset restores the automatic snapshot without rereading modified source files. A reusable worker keeps custom regex execution off the server thread, with a five-second limit per session and rule. The browser polls progress while donation controls are locked.
+- Browser demo: adding a rule from the overview updated the donation-wide count; adding another with a transcript open immediately refreshed its markers. There is no session target picker. Reset restored the original custom-redacted text while retaining email and credential redactions.
+
 # Custom redaction access and occurrence navigation
 
 This update restores custom inputs at the top of Customize mode, including when no session is open. The Apply to session picker makes the target explicit. Applying or resetting a pattern opens the affected transcript; viewing a matched value collapses the form to its visible summary.

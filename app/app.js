@@ -4,7 +4,7 @@ const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((
 const state = {
   catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Map(),
   acceptedId: "", busy: false, review: null, sessionPage: 0, reviewIndex: 0, messagePage: 0,
-  activeId: "", filtered: [], revision: 0, building: false, updating: false, previewRequest: 0, timer: null, customRedactionCount: 0, redactionFocus: null, categoryKind: "", categoryController: null, customTargetId: "", occurrence: null, occurrenceController: null, occurrenceLoading: false, occurrenceFocus: false,
+  activeId: "", filtered: [], revision: 0, building: false, updating: false, previewRequest: 0, timer: null, customRedactionCount: 0, redactionFocus: null, categoryKind: "", categoryController: null, occurrence: null, occurrenceController: null, occurrenceLoading: false, occurrenceFocus: false,
 };
 
 function setHidden(element, hidden) { element.classList.toggle("hidden", hidden); }
@@ -83,14 +83,6 @@ function renderMode() {
     ? ""
     : "Custom redactions are paused. Choose Customize redactions to apply them." : "";
   setHidden(elements["custom-redaction"], state.mode !== "custom");
-  const included = state.catalog.filter(session => state.chosen.has(session.id));
-  if (!state.chosen.has(state.customTargetId)) state.customTargetId = included[0]?.id || "";
-  elements["custom-session"].replaceChildren(...included.map(session => {
-    const option = document.createElement("option"); option.value = session.id;
-    option.textContent = session.title || `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()}`;
-    return option;
-  }));
-  elements["custom-session"].value = state.customTargetId;
   setHidden(elements["unredacted-consent"], state.mode !== "unredacted");
   elements.donate.firstChild.textContent = state.mode === "unredacted" ? "Donate unredacted data " : "Donate reviewed data ";
 }
@@ -105,7 +97,7 @@ async function api(url, method = "GET", body, signal) {
 function lockControls(locked) {
   for (const control of elements.workspace.querySelectorAll("input, select, button")) control.disabled = locked;
   if (!locked) {
-    for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating || state.review?.status !== "ready" || !state.customTargetId;
+    for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating || state.review?.status !== "ready" || !state.chosen.size;
     for (const control of elements["bundle-redactions"].querySelectorAll("input")) control.disabled = state.updating || state.review?.status !== "ready" || (control.dataset.redactionKey.startsWith("match:") && state.disabledKinds.has(control.dataset.kind));
     elements.consent.disabled = state.updating || !state.chosen.size || state.review?.status !== "ready";
     elements["unredacted-ack"].disabled = elements.consent.disabled;
@@ -135,7 +127,6 @@ async function showSession(id, occurrence = null) {
   state.activeId = id;
   state.occurrence = occurrence;
   if (!occurrence) { state.occurrenceController?.abort(); state.occurrenceLoading = false; }
-  if (state.chosen.has(id)) state.customTargetId = id;
   setHidden(elements["session-viewer"], false);
   setHidden(elements["back-overview"], false);
   const request = ++state.previewRequest, revision = state.revision;
@@ -456,56 +447,45 @@ function clearCustomError() {
   elements["custom-pattern"].removeAttribute("aria-invalid");
 }
 
-async function applyCustomRedaction() {
-  if (state.busy || state.updating || state.review?.status !== "ready" || state.mode !== "custom" || !state.chosen.has(state.customTargetId)) return;
-  const targetId = state.customTargetId;
-  const targetIndex = state.review.sessions.findIndex(s => s.id === targetId);
-  if (targetIndex < 0) return;
+async function changeCustomRedactions(reset = false) {
+  if (state.busy || state.updating || state.review?.status !== "ready" || state.mode !== "custom" || !state.chosen.size) return;
   const pattern = elements["custom-pattern"].value;
-  clearCustomError(); elements["custom-status"].textContent = "";
-  if (!pattern) {
+  clearCustomError();
+  if (!reset && !pattern) {
     elements["custom-error"].textContent = "Enter text or a regular expression.";
     elements["custom-pattern"].setAttribute("aria-invalid", "true");
     return elements["custom-pattern"].focus();
   }
   state.occurrenceController?.abort(); state.occurrenceLoading = false;
+  state.categoryController?.abort(); state.categoryKind = ""; state.previewRequest++;
   state.busy = true; invalidateConsent(); lockControls(true);
   try {
-    const result = await api(`/api/reviews/${state.review.id}/sessions/${targetIndex}`, "POST", { pattern, type: elements["custom-mode"].value });
-    state.activeId = targetId; state.reviewIndex = targetIndex; state.messagePage = 0; state.occurrence = null;
-    state.preview = result.preview;
-    setHidden(elements["session-viewer"], false); setHidden(elements["back-overview"], false); highlightSession();
-    state.review = { ...state.review, ...result.overview };
-    state.customRedactionCount = result.preview.customRedactionCount || 0;
-    elements["custom-status"].textContent = result.count ? `Applied ${result.count} redaction${result.count === 1 ? "" : "s"}.` : "No matches found. Try different text or a pattern.";
-    if (result.count) elements["custom-pattern"].value = "";
-    elements["bundle-details"].open = false;
-    renderOverview(); renderReview();
+    let result = await api(`/api/reviews/${state.review.id}/custom`, reset ? "DELETE" : "POST", reset ? undefined : { pattern, type: elements["custom-mode"].value });
+    while (result.redacting) {
+      elements["custom-status"].textContent = `${reset ? "Resetting" : "Redacting"} ${result.redactedSessions.toLocaleString()} of ${result.total.toLocaleString()} sessions…`;
+      await new Promise(resolve => setTimeout(resolve, 300));
+      result = await api(`/api/reviews/${state.review.id}`);
+    }
+    if (result.customError) throw new Error(result.customError);
+    state.review = result; state.customRedactionCount = result.customRedactionCount || 0;
+    if (state.activeId) {
+      const index = state.review.sessions.findIndex(session => session.id === state.activeId);
+      state.preview = index >= 0 ? await api(`/api/reviews/${state.review.id}/sessions/${index}`) : await api("/api/donation-preview", "POST", { sessionIds: [state.activeId], ...previewOptions() });
+      state.occurrence = null;
+      renderReview();
+    }
+    renderOverview(); renderMode();
+    elements["custom-status"].textContent = reset ? "Custom redactions reset across all included sessions." : result.customCount ? `Applied ${result.customCount.toLocaleString()} redaction${result.customCount === 1 ? "" : "s"} across included sessions.` : "No matches found. Pattern saved for sessions you include later.";
+    if (!reset) elements["custom-pattern"].value = "";
   } catch (error) {
-    elements["custom-error"].textContent = `${error.message} Check the text or pattern and try again.`;
-    elements["custom-pattern"].setAttribute("aria-invalid", "true");
-  } finally { state.busy = false; lockControls(false); elements["custom-pattern"].focus({ preventScroll: true }); }
+    elements["custom-status"].textContent = "";
+    elements["custom-error"].textContent = error.message;
+    if (!reset) elements["custom-pattern"].setAttribute("aria-invalid", "true");
+  } finally { state.busy = false; lockControls(false); elements[reset ? "reset-custom" : "custom-pattern"].focus({ preventScroll: true }); }
 }
 
-async function resetCustomRedactions() {
-  if (state.busy || state.updating || state.mode !== "custom" || state.review?.status !== "ready" || !state.chosen.has(state.customTargetId)) return;
-  const targetId = state.customTargetId, targetIndex = state.review.sessions.findIndex(s => s.id === targetId);
-  if (targetIndex < 0) return;
-  state.occurrenceController?.abort(); state.occurrenceLoading = false;
-  state.busy = true; invalidateConsent(); lockControls(true); clearCustomError();
-  elements["custom-status"].textContent = "";
-  try {
-    const result = await api(`/api/reviews/${state.review.id}/sessions/${targetIndex}`, "DELETE");
-    state.activeId = targetId; state.reviewIndex = targetIndex; state.messagePage = 0; state.occurrence = null;
-    setHidden(elements["session-viewer"], false); setHidden(elements["back-overview"], false); highlightSession();
-    state.preview = result.preview; state.customRedactionCount = result.preview.customRedactionCount || 0;
-    state.review = { ...state.review, ...result.overview };
-    elements["bundle-details"].open = false;
-    renderOverview(); renderReview();
-    elements["custom-status"].textContent = "Custom redactions reset.";
-  } catch (error) { elements["custom-status"].textContent = `${error.message} Try resetting again.`; }
-  finally { state.busy = false; lockControls(false); elements["reset-custom"].focus({ preventScroll: true }); }
-}
+async function applyCustomRedaction() { return changeCustomRedactions(); }
+async function resetCustomRedactions() { return changeCustomRedactions(true); }
 
 async function donate() {
   if (state.busy || state.updating || !state.review || !state.chosen.size) return;
@@ -620,7 +600,6 @@ async function loadCatalog() {
 elements["retry-catalog"].addEventListener("click", loadCatalog);
 void loadCatalog();
 
-elements["custom-session"].addEventListener("change", () => { state.customTargetId = elements["custom-session"].value; clearCustomError(); elements["custom-status"].textContent = ""; });
 elements["occurrence-prev"].addEventListener("click", () => { if (state.occurrence) void openOccurrence(state.occurrence.kind, state.occurrence.matchId, state.occurrence.position - 1); });
 elements["occurrence-next"].addEventListener("click", () => { if (state.occurrence) void openOccurrence(state.occurrence.kind, state.occurrence.matchId, state.occurrence.position + 1); });
 elements["occurrence-redact"].addEventListener("change", () => {

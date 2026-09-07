@@ -85,11 +85,11 @@ test("custom redaction only replaces matches with a fixed marker and preserves e
     await job.task;
     const result = await reviews.redact(job, { pattern: "complete", type: "text", replacement: "Invented answer", messages: [] });
     assert.equal(result.count, 1);
-    assert.deepEqual((await reviews.read(job, 0)).sessions[0].messages, [{ ...message, text: "Keep the [REDACTED CUSTOM] session" }, { role: "assistant", text: "Answer 0" }]);
+    assert.deepEqual((await reviews.read(job, 0)).sessions[0].messages, [{ ...message, text: "Keep the [REDACTED] session" }, { role: "assistant", text: "Answer 0" }]);
 
     await assert.rejects(reviews.redact(job, { pattern: "(?=Keep)", type: "regex" }), /empty text/);
     const second = await reviews.redact(job, { pattern: "Answer [0-9]+", type: "regex" });
-    assert.equal((await reviews.read(job, 0)).sessions[0].messages[1].text, "[REDACTED CUSTOM]");
+    assert.equal((await reviews.read(job, 0)).sessions[0].messages[1].text, "[REDACTED]");
     assert.equal((await reviews.read(job, 0)).sessions[0].messages.length, 2);
     job.status = "uploading";
     await assert.rejects(reviews.redact(job, { pattern: "Keep", type: "text" }), /finish/);
@@ -279,5 +279,64 @@ test("global patterns cover later inclusions, reset snapshots exactly, and roll 
     assert.equal((await reviews.read(job, 0)).sessions[0].messages[0].text, "complete", "earlier sessions are unchanged after a later failure");
     await reviews.redact(job, { pattern: "later", type: "text" });
     assert.equal(reviews.customRedactionCount(), 1, "zero-match rules are saved for later inclusions");
+  } finally { await reviews.close(); }
+});
+
+test("custom rules have stable identities and counts; removing one replays the others across every snapshot", async () => {
+  let sourceChanged = false;
+  const reviews = new Reviews(catalog, { preview: async (...args) => {
+    const result = await preview(...args);
+    if (sourceChanged) result.sessions[0].messages = [{ role: "user", text: "Changed source" }];
+    return result;
+  } });
+  const prepare = async (ids, mode = "custom") => { const result = await reviews.create(ids, { mode }); const job = reviews.get(result.id); await job.task; return job; };
+  try {
+    let job = await prepare(["0", "1"]);
+    await reviews.redact(job, { pattern: "complete", type: "text" });
+    await reviews.redact(job, { pattern: "complete session", type: "text" });
+    await reviews.redact(job, { pattern: "Answer [0-9]+", type: "regex" });
+    const rules = reviews.summary(job).customRules;
+    assert.deepEqual(rules.map(({ pattern, type, count, enabled }) => ({ pattern, type, count, enabled })), [
+      { pattern: "complete", type: "text", count: 2, enabled: true },
+      { pattern: "complete session", type: "text", count: 0, enabled: true },
+      { pattern: "Answer [0-9]+", type: "regex", count: 2, enabled: true },
+    ]);
+    assert.equal(new Set(rules.map(rule => rule.id)).size, 3);
+    sourceChanged = true;
+    await reviews.removeCustom(job, rules[0].id);
+    assert.deepEqual(reviews.summary(job).customRules.map(({ id, count }) => ({ id, count })), rules.slice(1).map(rule => ({ id: rule.id, count: 2 })));
+    for (const i of [0, 1]) assert.deepEqual((await reviews.read(job, i)).sessions[0].messages, [{ ...message, text: "Keep the [REDACTED]" }, { role: "assistant", text: "[REDACTED]" }]);
+    assert.equal(job.customDetections, 4);
+    await assert.rejects(reviews.removeCustom(job, rules[0].id), /not found/);
+    sourceChanged = false;
+    job = await prepare(["2"]);
+    assert.deepEqual(reviews.summary(job).customRules.map(rule => [rule.id, rule.count]), rules.slice(1).map(rule => [rule.id, 1]));
+    const donation = await reviews.donation(job, [0], { researchDonation: true }, "test", 0);
+    assert.doesNotMatch(JSON.stringify(donation), /customRules|complete session|Answer \[0-9\]/);
+    job = await prepare(["2"], "standard");
+    assert.ok(reviews.summary(job).customRules.every(rule => !rule.enabled && rule.count === 0));
+    await assert.rejects(reviews.removeCustom(job, rules[1].id), /Customize/);
+    job = await prepare(["2"]);
+    await reviews.removeCustom(job, rules[1].id);
+    assert.equal((await reviews.read(job, 0)).sessions[0].messages[0].text, message.text);
+    assert.equal((await reviews.read(job, 0)).sessions[0].messages[1].text, "[REDACTED]");
+    await reviews.removeCustom(job, rules[2].id);
+    assert.deepEqual(reviews.summary(job).customRules, []);
+    assert.equal(job.customDetections, 0);
+  } finally { await reviews.close(); }
+});
+
+test("removing a rule rolls back if it exposes text that makes a remaining expression invalid", async () => {
+  const reviews = new Reviews(catalog, { preview });
+  const result = await reviews.create(["0", "1"], { mode: "custom" });
+  const job = reviews.get(result.id); await job.task;
+  try {
+    await reviews.redact(job, { pattern: "complete", type: "text" });
+    await reviews.redact(job, { pattern: "Answer|(?=complete)", type: "regex" });
+    const before = await reviews.read(job, 0), summary = reviews.overview(job);
+    await assert.rejects(reviews.removeCustom(job, summary.customRules[0].id), /empty text/);
+    assert.deepEqual(await reviews.read(job, 0), before);
+    assert.deepEqual(reviews.overview(job), summary);
+    assert.equal(job.redacting, false);
   } finally { await reviews.close(); }
 });

@@ -44,7 +44,7 @@ if (!isMainThread) parentPort.on("message", ({ messages, pattern, type }) => {
     const redacted = messages.map(message => ({ ...message, text: message.text.replace(expression, match => {
       if (!match.length) throw new Error("The expression cannot match empty text.");
       count++;
-      return "[REDACTED CUSTOM]";
+      return "[REDACTED]";
     }) }));
     parentPort.postMessage({ messages: redacted, count });
   } catch (error) { parentPort.postMessage({ error: error.message }); }

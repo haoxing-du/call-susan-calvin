@@ -31,15 +31,17 @@ export function planBatches(sessions) {
 export class Reviews {
   constructor(catalog, { preview = makeDonationPreview, root = os.tmpdir() } = {}) { this.catalog = catalog; this.preview = preview; this.root = root; this.jobs = new Map(); this.customRedactions = []; }
   customRedactionCount() { return this.customRedactions.length; }
-  async applyPatterns(preview, options, redactor) {
+  async applyPatterns(preview, options, redactor, rules = this.customRedactions) {
     preview.customDetectionCount = 0;
+    preview.customRules = rules.map(rule => ({ id: rule.id, count: 0 }));
     if (options.mode === "custom") {
       for (const session of preview.sessions) {
-        for (const rule of this.customRedactions) {
+        for (const rule of rules) {
           const result = await redactor.redact(session.messages, rule.pattern, rule.type);
           session.messages = result.messages; preview.customDetectionCount += result.count;
+          preview.customRules.find(item => item.id === rule.id).count += result.count;
         }
-        if (this.customRedactions.length) session.summary = sessionSummary(session.messages);
+        if (rules.length) session.summary = sessionSummary(session.messages);
       }
     }
     return { ...preview, customRedactionCount: this.customRedactionCount() };
@@ -58,7 +60,7 @@ export class Reviews {
     await this.close();
     const folder = await fs.mkdtemp(path.join(this.root, "susan-calvin-review-"));
     await fs.chmod(folder, 0o700);
-    const job = { id: crypto.randomUUID(), folder, status: "preparing", total: ids.length, processed: 0, sessions: [], messages: 0, detections: 0, customDetections: 0, redactions: REDACTION_KINDS.map(item => ({ ...item, count: 0, enabledCount: 0, enabled: !options.unredacted && !options.disabledKinds.includes(item.kind) })), options, uploaded: 0, donationId: "", error: "" };
+    const job = { id: crypto.randomUUID(), folder, status: "preparing", total: ids.length, processed: 0, sessions: [], messages: 0, detections: 0, customDetections: 0, customRules: this.customRedactions.map(rule => ({ ...rule, count: 0, enabled: options.mode === "custom" })), redactions: REDACTION_KINDS.map(item => ({ ...item, count: 0, enabledCount: 0, enabled: !options.unredacted && !options.disabledKinds.includes(item.kind) })), options, uploaded: 0, donationId: "", error: "" };
     this.jobs.set(job.id, job);
     job.task = this.prepare(job, ids).catch((error) => { job.status = "error"; job.error = error.message; });
     return this.summary(job);
@@ -66,13 +68,17 @@ export class Reviews {
   summary(job) {
     return { redacting: Boolean(job.redacting), redactedSessions: job.redactedSessions || 0, customError: job.customError || "", customCount: job.customCount || 0, id: job.id, status: job.status, total: job.total, processed: job.processed, ...(job.status === "ready" && !job.redacting ? { sessions: job.sessions } : {}), ...this.overview(job), uploaded: job.uploaded, batches: job.batches?.length || 0, donationId: job.donationId, error: job.error };
   }
-  overview(job) { return { messages: job.messages, detections: job.detections, customDetections: job.customDetections, redactions: job.redactions, customRedactionCount: this.customRedactionCount() }; }
+  overview(job) { return { messages: job.messages, detections: job.detections, customDetections: job.customDetections, redactions: job.redactions, customRules: job.customRules, customRedactionCount: this.customRedactionCount() }; }
   countRedactions(job, preview, direction = 1) {
     for (const item of preview.redactions) {
       const total = job.redactions.find(total => total.kind === item.kind);
       if (total) { total.count += direction * item.count; total.enabledCount += direction * item.enabledCount; }
     }
     job.customDetections += direction * (preview.customDetectionCount || 0);
+    for (const item of preview.customRules || []) {
+      const total = job.customRules.find(rule => rule.id === item.id);
+      if (total) total.count += direction * item.count;
+    }
   }
   get(id) { const job = this.jobs.get(id); if (!job) throw new Error("Review expired. Prepare a new preview."); return job; }
   async prepare(job, ids) {
@@ -168,41 +174,43 @@ export class Reviews {
     job.sessions[index].summary = session.summary;
     if (replan) job.batches = planBatches(job.sessions);
   }
-  async resetCustom(job) { return this.changeCustom(job, null); }
-  async redact(job, rule) { return this.changeCustom(job, rule); }
-  async changeCustom(job, rule) {
+  async resetCustom(job) { return this.changeCustom(job, []); }
+  async removeCustom(job, id) {
+    if (!this.customRedactions.some(rule => rule.id === id)) throw new Error("Custom redaction not found. Refresh the preview.");
+    return this.changeCustom(job, this.customRedactions.filter(rule => rule.id !== id));
+  }
+  async redact(job, { pattern, type }) {
+    const rule = { id: crypto.randomUUID(), pattern, type };
+    return this.changeCustom(job, [...this.customRedactions, rule], rule);
+  }
+  async changeCustom(job, rules, addedRule = null) {
     if (job.status !== "ready" || job.redacting) throw new Error("Wait for the current operation to finish.");
     if (job.options.mode !== "custom") throw new Error("Choose Customize redactions to change custom redactions.");
     job.redacting = true; job.redactedSessions = 0; job.customError = ""; job.customCount = 0;
     const redactor = createRedactor();
     let folder;
     try {
-      if (rule) await redactor.redact([], rule.pattern, rule.type);
+      if (addedRule) await redactor.redact([], addedRule.pattern, addedRule.type);
       folder = await fs.mkdtemp(path.join(this.root, "susan-calvin-review-"));
       await fs.chmod(folder, 0o700);
-      const staged = { ...job, folder, sessions: structuredClone(job.sessions), redactions: structuredClone(job.redactions) };
+      const staged = { ...job, folder, sessions: structuredClone(job.sessions), redactions: structuredClone(job.redactions), customRules: rules.map(rule => ({ ...rule, count: job.customRules.find(saved => saved.id === rule.id)?.count || 0, enabled: true })) };
       let count = 0;
       // Commit only after every session succeeds. A bad pattern cannot leave a
       // donation partly redacted. Memory is bounded to one session at a time.
       for (let index = 0; index < job.sessions.length; index++) {
         await fs.copyFile(path.join(job.folder, `${index}.json`), path.join(folder, `${index}.json`));
         await fs.copyFile(path.join(job.folder, `${index}.base.json`), path.join(folder, `${index}.base.json`));
-        const preview = rule ? await this.read(job, index) : JSON.parse(await fs.readFile(path.join(folder, `${index}.base.json`), "utf8"));
-        if (rule) {
-          const result = await redactor.redact(preview.sessions[0].messages, rule.pattern, rule.type);
-          preview.sessions[0].messages = result.messages;
-          preview.customDetectionCount = (preview.customDetectionCount || 0) + result.count;
-          count += result.count;
-        } else preview.customDetectionCount = 0;
+        const base = JSON.parse(await fs.readFile(path.join(folder, `${index}.base.json`), "utf8"));
+        const preview = await this.applyPatterns(base, job.options, redactor, rules);
+        count += preview.customRules.find(rule => rule.id === addedRule?.id)?.count || 0;
         await this.writeSession(staged, index, preview, false);
         job.redactedSessions++;
       }
       staged.batches = planBatches(staged.sessions);
       const previousFolder = job.folder;
-      for (const key of ["folder", "sessions", "messages", "detections", "customDetections", "redactions", "batches"]) job[key] = staged[key];
+      for (const key of ["folder", "sessions", "messages", "detections", "customDetections", "redactions", "customRules", "batches"]) job[key] = staged[key];
       folder = null;
-      if (rule) this.customRedactions.push({ pattern: rule.pattern, type: rule.type });
-      else this.customRedactions = [];
+      this.customRedactions = rules;
       job.customCount = count;
       await fs.rm(previousFolder, { recursive: true, force: true });
       return { count, overview: this.overview(job) };

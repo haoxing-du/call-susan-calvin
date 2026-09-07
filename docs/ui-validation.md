@@ -1,3 +1,10 @@
+# Saved custom rule management
+
+Standard and custom redactions share a table with matching group headings, status, and instance columns. Each saved custom pattern has its own row, type label, and Remove action, including rules with zero matches. Plain text and regex replacements use `[REDACTED]`. Existing automatic markers retain their category labels.
+
+- All 40 tests and syntax checks pass. New coverage verifies stable rule IDs, per-rule counts, overlapping patterns, individual removal, later inclusions, Standard mode suspension, snapshot stability after source changes, preservation of other rules, and rollback if removal exposes text that invalidates a remaining expression. The local API test checks individual removal and cross-origin rejection.
+- Browser demo: added two rules, verified both pattern/count rows, removed one, and confirmed the remaining row and transcript marker. Removed text returned while automatic email/credential redactions and the other custom rule remained applied.
+
 # Global custom redactions (0.4.0)
 
 Custom text and regex rules now apply across all included sessions. The session picker is removed. Rules also apply to later inclusions; reset clears every custom rule and preserves automatic choices. Older entries below describe previous releases.

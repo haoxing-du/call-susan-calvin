@@ -157,7 +157,7 @@ test("custom redactions survive selection, mode and rule changes until a donatio
     await change(job, { pattern: "research", type: "text" });
     const second = { preview: await call(`/api/reviews/${job.id}/sessions/1`) };
     assert.equal(applied.customCount, 1);
-    assert.match(second.preview.sessions[0].summary, /\[REDACTED CUSTOM\]/);
+    assert.match(second.preview.sessions[0].summary, /\[REDACTED\]/);
     job = await prepare([claude]);
     assert.deepEqual((await call(`/api/reviews/${job.id}/sessions/0`)).sessions, first.preview.sessions);
     const excluded = await call("/api/donation-preview", "POST", { sessionIds: [cowork], mode: "custom" });
@@ -173,7 +173,17 @@ test("custom redactions survive selection, mode and rule changes until a donatio
     job = await prepare([claude, cowork], "custom", { disabledKinds: first.preview.redactions.map(r => r.kind) });
     let current = await call(`/api/reviews/${job.id}/sessions/0`);
     assert.equal(current.detectionCount, 0);
-    assert.match(current.sessions[0].messages[1].text, /\[REDACTED CUSTOM\]/);
+    assert.match(current.sessions[0].messages[1].text, /\[REDACTED\]/);
+    const customRules = (await call(`/api/reviews/${job.id}`)).customRules;
+    assert.equal(customRules.length, 2);
+    const removeRoute = `/api/reviews/${job.id}/custom/${customRules[0].id}`;
+    assert.equal((await fetch(`${local.url}${removeRoute}`, { method: "DELETE", headers: { origin: "https://attacker.example" } })).status, 403);
+    let removing = await call(removeRoute, "DELETE");
+    while (removing.redacting) removing = await call(`/api/reviews/${job.id}`);
+    assert.equal(removing.customError, "");
+    assert.deepEqual(removing.customRules.map(rule => rule.pattern), ["research"]);
+    assert.match((await call(`/api/reviews/${job.id}/sessions/0`)).sessions[0].messages[1].text, /configuration mismatch/);
+    assert.match((await call(`/api/reviews/${job.id}/sessions/1`)).sessions[0].summary, /\[REDACTED\]/);
     const crossOrigin = await fetch(`${local.url}/api/reviews/${job.id}/custom`, { method: "DELETE", headers: { origin: "https://attacker.example" } });
     assert.equal(crossOrigin.status, 403);
     await change(job);
@@ -181,10 +191,10 @@ test("custom redactions survive selection, mode and rule changes until a donatio
     assert.match(reset.preview.sessions[0].messages[1].text, /configuration mismatch/);
     assert.equal(reset.preview.detectionCount, 0, "reset does not change automatic rules");
     assert.equal(reset.preview.customRedactionCount, 0);
-    assert.doesNotMatch(JSON.stringify((await call(`/api/reviews/${job.id}/sessions/1`)).sessions), /REDACTED CUSTOM/);
+    assert.doesNotMatch(JSON.stringify((await call(`/api/reviews/${job.id}/sessions/1`)).sessions), /REDACTED/);
     job = await prepare([claude, cowork]);
     current = await call(`/api/reviews/${job.id}/sessions/0`);
     assert.match(current.sessions[0].messages[1].text, /configuration mismatch/, "reset survives the next rebuild");
-    assert.doesNotMatch(JSON.stringify((await call(`/api/reviews/${job.id}/sessions/1`)).sessions), /REDACTED CUSTOM/);
+    assert.doesNotMatch(JSON.stringify((await call(`/api/reviews/${job.id}/sessions/1`)).sessions), /REDACTED/);
   } finally { await new Promise(resolve => local.server.close(resolve)); }
 });

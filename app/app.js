@@ -98,6 +98,7 @@ function lockControls(locked) {
   for (const control of elements.workspace.querySelectorAll("input, select, button")) control.disabled = locked;
   if (!locked) {
     for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating || state.review?.status !== "ready" || !state.chosen.size;
+    for (const control of elements["bundle-redactions"].querySelectorAll("button[data-custom-id]")) control.disabled = state.updating || state.review?.status !== "ready" || state.mode !== "custom";
     for (const control of elements["bundle-redactions"].querySelectorAll("input")) control.disabled = state.updating || state.review?.status !== "ready" || (control.dataset.redactionKey.startsWith("match:") && state.disabledKinds.has(control.dataset.kind));
     elements.consent.disabled = state.updating || !state.chosen.size || state.review?.status !== "ready";
     elements["unredacted-ack"].disabled = elements.consent.disabled;
@@ -400,6 +401,12 @@ function renderOverview() {
   }
   head.append(headers); table.append(head);
   const body = document.createElement("tbody");
+  const groupHeading = label => {
+    const row = document.createElement("tr"), heading = document.createElement("th");
+    heading.colSpan = 3; heading.className = "redaction-group"; heading.textContent = label;
+    row.append(heading); body.append(row);
+  };
+  groupHeading("Standard redactions");
   for (const item of job.redactions || []) {
     const row = document.createElement("tr"), name = document.createElement("th"); name.scope = "row";
     const heading = document.createElement("div"); heading.className = "category-heading";
@@ -425,11 +432,27 @@ function renderOverview() {
     row.append(name, status, count); body.append(row, detailRow);
     if (state.categoryKind === item.kind) queueMicrotask(() => { if (matches.isConnected) void loadCategory(item, matches); });
   }
-  if (state.mode === "custom" || job.customRedactionCount) {
-    const row = document.createElement("tr"), name = document.createElement("th"); name.scope = "row"; name.textContent = "Custom redactions";
-    const status = document.createElement("td"); status.textContent = state.mode === "custom" ? "Applied" : "Not applied";
-    const count = document.createElement("td"); count.textContent = (job.customDetections || 0).toLocaleString();
-    row.append(name, status, count); body.append(row);
+  if (state.mode === "custom" || job.customRules?.length) {
+    groupHeading("Custom redactions");
+    for (const rule of job.customRules || []) {
+      const row = document.createElement("tr"), name = document.createElement("th"); name.scope = "row";
+      const pattern = document.createElement("code"); pattern.className = "custom-rule-pattern"; pattern.textContent = rule.pattern;
+      const type = document.createElement("span"); type.className = "custom-rule-type"; type.textContent = rule.type === "regex" ? "Regular expression" : "Plain text";
+      name.append(pattern, type);
+      const status = document.createElement("td"); status.append(rule.enabled ? "On" : "Off");
+      if (state.mode === "custom") {
+        const remove = document.createElement("button"); remove.className = "remove-custom"; remove.textContent = "Remove"; remove.dataset.customId = rule.id;
+        remove.setAttribute("aria-label", `Remove custom redaction: ${rule.pattern}`);
+        remove.addEventListener("click", () => { void changeCustomRedactions(false, rule.id); });
+        status.append(remove);
+      }
+      const count = document.createElement("td"); count.textContent = rule.count.toLocaleString();
+      row.append(name, status, count); body.append(row);
+    }
+    if (!job.customRules?.length) {
+      const row = document.createElement("tr"), empty = document.createElement("td"); empty.colSpan = 3; empty.className = "custom-rules-empty"; empty.textContent = "No custom redactions added.";
+      row.append(empty); body.append(row);
+    }
   }
   table.append(body); elements["bundle-redactions"].append(table);
   lockControls(state.busy);
@@ -447,11 +470,11 @@ function clearCustomError() {
   elements["custom-pattern"].removeAttribute("aria-invalid");
 }
 
-async function changeCustomRedactions(reset = false) {
+async function changeCustomRedactions(reset = false, removeId = "") {
   if (state.busy || state.updating || state.review?.status !== "ready" || state.mode !== "custom" || !state.chosen.size) return;
   const pattern = elements["custom-pattern"].value;
   clearCustomError();
-  if (!reset && !pattern) {
+  if (!reset && !removeId && !pattern) {
     elements["custom-error"].textContent = "Enter text or a regular expression.";
     elements["custom-pattern"].setAttribute("aria-invalid", "true");
     return elements["custom-pattern"].focus();
@@ -460,9 +483,10 @@ async function changeCustomRedactions(reset = false) {
   state.categoryController?.abort(); state.categoryKind = ""; state.previewRequest++;
   state.busy = true; invalidateConsent(); lockControls(true);
   try {
-    let result = await api(`/api/reviews/${state.review.id}/custom`, reset ? "DELETE" : "POST", reset ? undefined : { pattern, type: elements["custom-mode"].value });
+    const removing = reset || Boolean(removeId);
+    let result = await api(`/api/reviews/${state.review.id}/custom${removeId ? `/${removeId}` : ""}`, removing ? "DELETE" : "POST", removing ? undefined : { pattern, type: elements["custom-mode"].value });
     while (result.redacting) {
-      elements["custom-status"].textContent = `${reset ? "Resetting" : "Redacting"} ${result.redactedSessions.toLocaleString()} of ${result.total.toLocaleString()} sessions…`;
+      elements["custom-status"].textContent = `${removing ? "Updating" : "Redacting"} ${result.redactedSessions.toLocaleString()} of ${result.total.toLocaleString()} sessions…`;
       await new Promise(resolve => setTimeout(resolve, 300));
       result = await api(`/api/reviews/${state.review.id}`);
     }
@@ -474,14 +498,21 @@ async function changeCustomRedactions(reset = false) {
       state.occurrence = null;
       renderReview();
     }
+    elements["bundle-details"].open = true;
     renderOverview(); renderMode();
-    elements["custom-status"].textContent = reset ? "Custom redactions reset across all included sessions." : result.customCount ? `Applied ${result.customCount.toLocaleString()} redaction${result.customCount === 1 ? "" : "s"} across included sessions.` : "No matches found. Pattern saved for sessions you include later.";
-    if (!reset) elements["custom-pattern"].value = "";
+    elements["custom-status"].textContent = removeId ? "Custom redaction removed." : reset ? "Custom redactions reset across all included sessions." : result.customCount ? `Applied ${result.customCount.toLocaleString()} redaction${result.customCount === 1 ? "" : "s"} across included sessions.` : "No matches found. Pattern saved for sessions you include later.";
+    if (!reset && !removeId) elements["custom-pattern"].value = "";
   } catch (error) {
     elements["custom-status"].textContent = "";
     elements["custom-error"].textContent = error.message;
-    if (!reset) elements["custom-pattern"].setAttribute("aria-invalid", "true");
-  } finally { state.busy = false; lockControls(false); elements[reset ? "reset-custom" : "custom-pattern"].focus({ preventScroll: true }); }
+    if (!reset && !removeId) elements["custom-pattern"].setAttribute("aria-invalid", "true");
+  } finally {
+    state.busy = false; lockControls(false);
+    if (removeId) {
+      const next = elements["bundle-redactions"].querySelector("button[data-custom-id]");
+      (next || elements["custom-pattern"]).focus({ preventScroll: true });
+    } else elements[reset ? "reset-custom" : "custom-pattern"].focus({ preventScroll: true });
+  }
 }
 
 async function applyCustomRedaction() { return changeCustomRedactions(); }

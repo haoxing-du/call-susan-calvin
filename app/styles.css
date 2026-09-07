@@ -155,3 +155,9 @@ footer { padding: 20px 0; border-top: 1px solid var(--line); color: var(--muted)
 .occurrence label { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .conversations { max-height: 520px; overflow: auto; position: relative; }
 .message-occurrence { outline: 2px solid #a58a46; outline-offset: 3px; }
+
+.bundle-redactions th.redaction-group { text-align: left; font-weight: 600; background: #f0ece4; }
+.custom-rule-pattern { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.custom-rule-type { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.remove-custom { display: block; margin-top: 4px; padding: 6px 8px; font-size: 12px; }
+.bundle-redactions td.custom-rules-empty { text-align: left; color: var(--muted); }

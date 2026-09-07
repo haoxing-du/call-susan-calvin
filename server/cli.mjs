@@ -47,21 +47,19 @@ async function run() {
   const port = Number(valueArgument("--port", "4318"));
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be a valid port number.");
 
-  console.log(`\n  ${accent("◇")}  ${style("Share with Susan Calvin", "1")}\n${rail}  Review and donate AI agent sessions for research.\n${rail}`);
-  if (!demo) {
-    console.log(`${rail}  Past ${style(String(days), "1")} day${days === 1 ? "" : "s"}${days === 30 ? muted(" (default)") : ""}`);
-    console.log(`${rail}  ${muted("Change with --days=N, e.g. --days=90.")}\n${rail}`);
-  }
+  console.log(`\n  ${accent("◇")}  ${style("Share with Susan Calvin", "1")}\n${rail}  Review and donate AI agent sessions for research\n${rail}  at the Susan Calvin Project.\n${rail}`);
   const sourceNames = { claude: "Claude Code", cowork: "Claude Cowork", codex: "Codex" };
-  console.log(`  ${accent("◇")}  Finding local sessions…`);
+  const discoveryLabel = demo ? "Finding local sessions…" : `Finding local sessions from the past ${style(String(days), "1")} day${days === 1 ? "" : "s"}…`;
+  console.log(`  ${accent("◇")}  ${discoveryLabel}`);
   console.log(`${rail}  ${muted(demo ? "Demo data" : (sources.length ? sources : Object.keys(sourceNames)).map(source => sourceNames[source]).join(" · "))}`);
+  if (!demo) console.log(`${rail}  ${muted("Change with --days=N, e.g. --days=90.")}`);
   const local = await startLocalApp({ port, days, sources, demo });
   if (!local.sessionCount) {
     local.server.close();
     throw new Error(`No supported agent sessions were found in the last ${days} days. Try a wider date range, such as share-with-susan-calvin --days=90, and check that your selected agents have saved sessions on this device.`);
   }
   console.log(`  ${style("✓", "32")}  ${style(`${local.sessionCount} session${local.sessionCount === 1 ? "" : "s"} ready`, "1")} ${muted("· nothing uploaded")}\n${rail}`);
-  console.log(`  ${accent("◇")}  Review locally\n${rail}  ${style(local.url, "1;95")}\n${rail}\n  ${muted("╰  Ctrl+C to stop the local server.")}\n`);
+  console.log(`  ${accent("◇")}  Select, review, and redact anything locally here:\n${rail}  ${style(local.url, "1;95")}\n${rail}\n  ${muted("╰  Ctrl+C to stop the local server.")}\n`);
   if (!args.includes("--no-open")) openExternalUrl(local.url);
   const stop = () => { local.server.close(); local.server.closeIdleConnections(); };
   process.on("SIGINT", stop);

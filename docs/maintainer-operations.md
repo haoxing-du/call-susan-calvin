@@ -14,3 +14,7 @@ An alternate private-key path may be supplied as the third argument. The output 
 
 Before accepting production donations, back up the encrypted private key and its passphrase through separate secure channels. Test decryption with a synthetic envelope after every key rotation, schema change, or collector release.
 
+
+Legacy Behavior Wrapped ciphertext remains in `behavior-wrapped-research-donations` and its metadata in `behavior-wrapped-research-metadata`, bound as `LEGACY_RESEARCH_DONATIONS` and `LEGACY_RESEARCH_DB`. Do not apply Susan migrations to that database. Use Behavior Wrapped's historical decrypt command for legacy envelopes; its schema and authenticated metadata differ even though the public key is shared. No stored data migration is required.
+
+Deploy this receiver with legacy bindings and feedback consent-version support before releasing the integrated collector or removing Wrapped's original receiver. Wrapped retains only a service forwarder for old deletion URLs. Keep its `DonationNotifications` service available for aggregate notifications.

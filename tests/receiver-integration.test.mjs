@@ -68,3 +68,24 @@ test("notification failures remain queued and simultaneous retries claim only on
     assert.ok((await db.prepare("SELECT delivered_at FROM susan_calvin_notifications").first()).delivered_at);
   } finally { await mf.dispose(); }
 });
+
+test("streamed classifier feedback stores consent v2 and keeps correction details encrypted", async () => {
+  const { mf, db, bucket } = await createReceiver();
+  try {
+    const id = crypto.randomUUID(), token = crypto.randomBytes(32).toString("base64url");
+    const keys = crypto.generateKeyPairSync("rsa", { modulusLength: 3072 });
+    const options = { publicKey: keys.publicKey, endpoint: "https://test/v1/donations", fetchImpl: (url, init) => mf.dispatchFetch(url, init), sleep: async () => {} };
+    const correction = { originalLabel: "thanking", correctedLabel: "neither", judgedText: "Synthetic reviewed excerpt", candidateId: "interaction-2", occurrences: 1, confidence: 1, judge: { model: "test-model", promptVersion: 1 }, note: "Synthetic explanation" };
+    await submitDonation({ donationRunId: id, group: { id, index: 0, count: 1 }, redactionMode: "standard", classifierFeedback: correction, sessions: [{ source: "claude", messages: [{ role: "user", text: "Synthetic original session" }] }], consent: { researchDonation: true, classifierFeedback: true } }, token, options);
+    assert.equal((await db.prepare("SELECT consent_version FROM susan_calvin_donations").first()).consent_version, 2);
+    const objects = (await bucket.list()).objects;
+    assert.equal(objects.length, 1);
+    const stored = parseStoredDonation(await (await bucket.get(objects[0].key)).arrayBuffer());
+    assert.deepEqual(decryptDonation(stored, keys.privateKey).classifierFeedback, correction);
+    await waitFor(async () => (await db.prepare("SELECT COUNT(*) AS n FROM test_deliveries").first()).n, 1);
+    const notification = (await db.prepare("SELECT payload FROM test_deliveries").first()).payload;
+    assert.doesNotMatch(notification, /Synthetic|thanking|test-model|interaction-2|classifierFeedback/);
+    await deleteDonation(id, token, { ...options, group: true });
+    assert.equal((await bucket.list()).objects.length, 0);
+  } finally { await mf.dispose(); }
+});

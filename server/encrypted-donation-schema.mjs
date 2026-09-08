@@ -1,3 +1,4 @@
+import { FEEDBACK_CONSENT_VERSION } from "./classifier-feedback-schema.mjs";
 import { DONATION_CONSENT_VERSION } from "./donation-schema.mjs";
 
 export const ENVELOPE_FORMAT = "susan-calvin-encrypted-donation-v1";
@@ -37,7 +38,7 @@ export function sanitizeEncryptedEnvelope(value) {
   if (!Array.isArray(metadata.sourceTypes) || !metadata.sourceTypes.length || metadata.sourceTypes.length > 3 || new Set(metadata.sourceTypes).size !== metadata.sourceTypes.length || metadata.sourceTypes.some((source) => !["claude", "cowork", "codex"].includes(source)) || metadata.sourceTypes.join("|") !== [...metadata.sourceTypes].sort().join("|")) return null;
   if (!["standard", "custom", "unredacted"].includes(metadata.redactionMode)) return null;
   if (!/^\d{4}-\d{2}-\d{2}T/.test(metadata.createdAt || "") || !/^\d{4}-\d{2}-\d{2}T/.test(metadata.consentedAt || "")) return null;
-  if (metadata.consentVersion !== DONATION_CONSENT_VERSION || typeof metadata.unredactedData !== "boolean" || metadata.unredactedData !== (metadata.redactionMode === "unredacted")) return null;
+  if (![DONATION_CONSENT_VERSION, FEEDBACK_CONSENT_VERSION].includes(metadata.consentVersion) || typeof metadata.unredactedData !== "boolean" || metadata.unredactedData !== (metadata.redactionMode === "unredacted")) return null;
   if (!boundedInteger(metadata.automatedDetections, 1_000_000) || !boundedInteger(metadata.sessions, 250, 1) || !boundedInteger(metadata.messages, 50_000, 1)) return null;
   if (metadata.groupId !== undefined && (!/^[0-9a-f-]{36}$/.test(metadata.groupId) || !boundedInteger(metadata.batchCount, 100_000, 1) || !boundedInteger(metadata.batchIndex, metadata.batchCount - 1))) return null;
   return value;

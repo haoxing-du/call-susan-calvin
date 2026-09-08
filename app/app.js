@@ -2,6 +2,7 @@ import { splitCodexContext } from "./session-context.js";
 
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((element) => [element.id, element]));
 const state = {
+  feedback: null, feedbackRevision: "", feedbackRequest: 0, feedbackPreparing: false,
   catalog: [], chosen: new Set(), preview: null, mode: "standard", disabledKinds: new Set(), disabledMatches: new Map(),
   acceptedId: "", busy: false, review: null, sessionPage: 0, reviewIndex: 0, messagePage: 0,
   activeId: "", filtered: [], revision: 0, building: false, updating: false, previewRequest: 0, timer: null, customRedactionCount: 0, redactionFocus: null, categoryKind: "", categoryController: null, occurrence: null, occurrenceController: null, occurrenceLoading: false, occurrenceFocus: false,
@@ -19,6 +20,8 @@ function clearReview() {
   elements["review-placeholder"].textContent = state.activeId ? "Loading session…" : "";
 }
 function invalidateConsent() {
+  state.feedbackRevision = ""; state.feedbackRequest++;
+  setHidden(elements["feedback-preview"], true);
   elements.consent.checked = false;
   elements["unredacted-ack"].checked = false;
   updateDonateButton();
@@ -27,7 +30,7 @@ function updateDonateButton() {
   const messages = state.review?.messages || 0;
   const hasEmptyMessage = (state.preview?.sessions.some((session) => session.messages.some((message) => !message.text.trim())) || false);
   setHidden(elements["message-validation"], !hasEmptyMessage);
-  elements.donate.disabled = state.busy || state.updating || state.review?.status !== "ready" || !state.chosen.size || !messages || (hasEmptyMessage && state.chosen.has(state.activeId)) || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
+  elements.donate.disabled = (state.feedback && !state.feedbackRevision) || state.feedbackPreparing || state.busy || state.updating || state.review?.status !== "ready" || !state.chosen.size || !messages || (hasEmptyMessage && state.chosen.has(state.activeId)) || !elements.consent.checked || (state.mode === "unredacted" && !elements["unredacted-ack"].checked);
 }
 
 function renderSessions() {
@@ -37,7 +40,7 @@ function renderSessions() {
     const row = document.createElement("div"); row.className = "session";
     const name = session.title || `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()}`;
     const input = document.createElement("input"); input.type = "checkbox"; input.checked = state.chosen.has(session.id);
-    input.setAttribute("aria-label", `Include ${name} in donation`); input.disabled = state.busy;
+    input.setAttribute("aria-label", `Include ${name} in donation`); input.disabled = state.busy || Boolean(state.feedback);
     input.addEventListener("change", () => { input.checked ? state.chosen.add(session.id) : state.chosen.delete(session.id); renderSelectionCount(); scheduleReview(); });
     const copy = document.createElement("button"); copy.type = "button"; copy.className = "session-open";
     copy.setAttribute("aria-label", `View ${name}`); copy.dataset.sessionId = session.id; copy.disabled = state.busy;
@@ -95,13 +98,16 @@ async function api(url, method = "GET", body, signal) {
 }
 
 function lockControls(locked) {
-  for (const control of elements.workspace.querySelectorAll("input, select, button")) control.disabled = locked;
+  for (const control of elements.workspace.querySelectorAll("input, select, textarea, button")) control.disabled = locked;
   if (!locked) {
-    for (const control of elements["custom-redaction"].querySelectorAll("input, select, button")) control.disabled = state.updating || state.review?.status !== "ready" || !state.chosen.size;
+    for (const control of elements["custom-redaction"].querySelectorAll("input, select, textarea, button")) control.disabled = state.updating || state.review?.status !== "ready" || !state.chosen.size;
     for (const control of elements["bundle-redactions"].querySelectorAll("button[data-custom-occurrences]")) control.disabled = state.updating || state.review?.status !== "ready" || state.mode !== "custom" || !Number(control.dataset.customOccurrences);
     for (const control of elements["bundle-redactions"].querySelectorAll("button[data-custom-id]")) control.disabled = state.updating || state.review?.status !== "ready" || state.mode !== "custom";
     for (const control of elements["bundle-redactions"].querySelectorAll("input")) control.disabled = state.updating || state.review?.status !== "ready" || (control.dataset.redactionKey.startsWith("match:") && state.disabledKinds.has(control.dataset.kind));
-    elements.consent.disabled = state.updating || !state.chosen.size || state.review?.status !== "ready";
+    elements["select-all"].disabled = Boolean(state.feedback);
+    for (const input of elements.sessions.querySelectorAll("input")) input.disabled = Boolean(state.feedback);
+    elements["prepare-feedback"].disabled = state.updating || state.feedbackPreparing || state.review?.status !== "ready";
+    elements.consent.disabled = Boolean(state.feedback && !state.feedbackRevision) || state.feedbackPreparing || state.updating || !state.chosen.size || state.review?.status !== "ready";
     elements["unredacted-ack"].disabled = elements.consent.disabled;
     elements["occurrence-prev"].disabled = state.occurrenceLoading || !state.occurrence || state.occurrence.position <= 0;
     elements["occurrence-next"].disabled = state.occurrenceLoading || !state.occurrence || state.occurrence.position + 1 >= state.occurrence.total;
@@ -532,14 +538,14 @@ async function donate() {
   if (state.busy || state.updating || !state.review || !state.chosen.size) return;
   state.busy = true; setError(); lockControls(true);
   try {
-    await api(`/api/reviews/${state.review.id}/donate`, "POST", { researchDonation: elements.consent.checked, unredactedData: elements["unredacted-ack"].checked });
+    await api(`/api/reviews/${state.review.id}/donate`, "POST", { researchDonation: elements.consent.checked, unredactedData: elements["unredacted-ack"].checked, ...(state.feedback ? { classifierFeedback: true, feedbackRevision: state.feedbackRevision } : {}) });
     const job = await pollReview();
     if (job.status !== "complete") throw new Error(job.error || "Upload paused. Retry to continue.");
     state.acceptedId = job.donationId;
     if (state.acceptedId === "demo-not-transmitted") elements["success-description"].textContent = "Demo complete. No data was transmitted and no donation receipt was saved.";
     elements["donation-id"].textContent = state.acceptedId;
     elements["delete-donation"].classList.toggle("hidden", !/^[0-9a-f-]{36}$/.test(state.acceptedId));
-    setHidden(elements.workspace, true); setHidden(elements.success, false);
+    setHidden(elements.workspace, true); setHidden(elements.success, false); setHidden(elements["stop-review"], true);
     elements["success-heading"].focus();
   } catch (error) { setError(error.message); }
   finally {
@@ -622,6 +628,13 @@ async function loadCatalog() {
   elements["loading-status"].textContent = "Loading local sessions…";
   try {
     const body = await api("/api/catalog");
+    state.feedback = body.feedback || null;
+    setHidden(elements.feedback, !state.feedback);
+    setHidden(elements["stop-review"], !body.integration);
+    if (state.feedback) {
+      elements["feedback-original"].textContent = `Wrapped classified this as ${state.feedback.originalLabel}.`;
+      elements["consent-copy"].textContent = body.feedbackConsent;
+    }
     state.catalog = body.sessions; state.chosen = new Set(body.sessions.map((session) => session.id));
     setHidden(elements.loading, true);
     if (!state.catalog.length) {
@@ -651,4 +664,35 @@ elements["occurrence-redact"].addEventListener("change", () => {
   if (elements["occurrence-redact"].checked) state.disabledMatches.delete(match.matchId);
   else state.disabledMatches.set(match.matchId, match.kind);
   scheduleReview();
+});
+
+async function prepareCorrection() {
+  invalidateConsent();
+  const request = state.feedbackRequest, reviewId = state.review?.id;
+  state.feedbackPreparing = true; lockControls(state.busy);
+  try {
+    const snapshot = await api(`/api/reviews/${reviewId}/feedback`, "POST", { correctedLabel: elements["feedback-label"].value, note: elements["feedback-note"].value });
+    if (request !== state.feedbackRequest || reviewId !== state.review?.id) return;
+    state.feedbackRevision = snapshot.revision;
+    const value = snapshot.value;
+    elements["feedback-preview"].replaceChildren();
+    for (const [label, content] of [["Original classification", value.originalLabel], ["Your correction", value.correctedLabel], ["Judged excerpt", value.judgedText], ["Your explanation", value.note || "None"], ["Judge model", value.judge.model], ["Judge prompt version", value.judge.promptVersion], ["Occurrences", value.occurrences], ["Judge confidence", value.confidence], ["Classification reference", value.candidateId]]) {
+      const term = document.createElement("dt"), detail = document.createElement("dd");
+      term.textContent = label; detail.textContent = String(content);
+      elements["feedback-preview"].append(term, detail);
+    }
+    setHidden(elements["feedback-preview"], false);
+    elements["feedback-status"].textContent = "Review the correction above, then give consent below.";
+  } catch (error) { elements["feedback-status"].textContent = error.message; }
+  finally { state.feedbackPreparing = false; lockControls(state.busy); }
+}
+elements["prepare-feedback"].addEventListener("click", prepareCorrection);
+for (const id of ["feedback-label", "feedback-note"]) elements[id].addEventListener("input", invalidateConsent);
+elements["stop-review"].addEventListener("click", async () => {
+  elements["stop-review"].disabled = true;
+  try {
+    await api("/api/shutdown", "POST");
+    elements["stop-status"].textContent = "Local server stopped. You can close this tab.";
+    state.busy = true; lockControls(true);
+  } catch (error) { elements["stop-status"].textContent = error.message; elements["stop-review"].disabled = false; }
 });

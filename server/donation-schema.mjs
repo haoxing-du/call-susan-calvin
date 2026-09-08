@@ -1,3 +1,5 @@
+import { FEEDBACK_CONSENT, FEEDBACK_CONSENT_VERSION, sanitizeClassifierFeedback } from "./classifier-feedback-schema.mjs";
+
 export const DONATION_FORMAT = "susan-calvin-donation-v1";
 export const DONATION_CONSENT_VERSION = 1;
 export const MAX_DONATION_BYTES = 20_000_000;
@@ -22,6 +24,8 @@ export function normalizeDonation(value) {
   if (value.redactionMode === "unredacted" && value.consent?.unredactedData !== true) return null;
   if (!Array.isArray(value.sessions) || !value.sessions.length || value.sessions.length > MAX_SESSIONS) return null;
   if (value.group && (!/^[0-9a-f-]{36}$/.test(value.group.id || "") || !Number.isInteger(value.group.index) || !Number.isInteger(value.group.count) || value.group.count < 1 || value.group.count > 100_000 || value.group.index < 0 || value.group.index >= value.group.count)) return null;
+  const feedback = value.classifierFeedback === undefined ? null : sanitizeClassifierFeedback(value.classifierFeedback);
+  if (value.classifierFeedback !== undefined && (!feedback || value.consent.classifierFeedback !== true || value.sessions.length !== 1 || (value.group && (value.group.count !== 1 || value.group.index !== 0)))) return null;
   const sessions = [];
   let messageCount = 0;
   for (const session of value.sessions) {
@@ -45,6 +49,7 @@ export function normalizeDonation(value) {
   const unredacted = value.redactionMode === "unredacted";
   return {
     format: DONATION_FORMAT,
+    ...(feedback ? { purpose: "classifier_feedback", classifierFeedback: feedback } : {}),
     donationRunId: value.donationRunId,
     ...(value.group ? { group: { id: value.group.id, index: value.group.index, count: value.group.count } } : {}),
     collector: { name: "share-with-susan-calvin", version: cleanText(value.collector?.version).slice(0, 32) || "unknown" },
@@ -60,8 +65,9 @@ export function normalizeDonation(value) {
     consent: {
       researchDonation: true,
       ...(unredacted ? { unredactedData: true } : {}),
-      consentVersion: DONATION_CONSENT_VERSION,
-      statement: unredacted
+      ...(feedback ? { classifierFeedback: true } : {}),
+      consentVersion: feedback ? FEEDBACK_CONSENT_VERSION : DONATION_CONSENT_VERSION,
+      statement: feedback ? `${FEEDBACK_CONSENT}${unredacted ? " I understand automatic redaction is disabled and private data may be transmitted." : ""}` : unredacted
         ? "I understand that this donation is not automatically redacted and may contain credentials, personal details, private code, URLs, and file paths. I consent to transmit this reviewed data to the Susan Calvin Project for research under the data policy."
         : "I consent for this reviewed data to be transmitted to the Susan Calvin Project and used for research under the data policy.",
       consentedAt: timestamp(value.consent.consentedAt) || new Date().toISOString(),

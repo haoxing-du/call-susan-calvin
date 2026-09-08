@@ -1,3 +1,5 @@
+import { sanitizeFeedbackContext, FEEDBACK_CONSENT } from "./classifier-feedback-schema.mjs";
+import { prepareFeedback } from "./classifier-feedback.mjs";
 import fs from "node:fs";
 import { Reviews, MAX_REVIEW_SESSIONS, planBatches } from "./reviews.mjs";
 import http from "node:http";
@@ -61,15 +63,18 @@ function publicCatalog(sessions) {
   }));
 }
 
-export async function startLocalApp({ port = 4318, days = 30, sources = [], demo = false } = {}) {
+export async function startLocalApp({ port = 4318, days = 30, sources = [], demo = false, feedback = null, integration = false, demoRoots = null } = {}) {
   const discoveryOptions = demo ? {
     claudeRoot: path.join(fixtureRoot, "claude"),
     coworkRoot: path.join(fixtureRoot, "cowork"),
     codexRoots: [path.join(fixtureRoot, "codex")],
+    ...(demoRoots || {}),
     cache: false,
   } : {};
   const catalog = await discoverAllSessions(discoveryOptions);
-  const selected = demo ? catalog.sessions : sessionsInWindow(catalog.sessions, { days, sources });
+  const feedbackContext = feedback ? sanitizeFeedbackContext(feedback) : null;
+  if (feedback && (!feedbackContext || !/^[a-f0-9]{16}$/.test(feedback.sessionId || "") || !catalog.index.has(feedback.sessionId))) throw new Error("The original feedback session is no longer available on this device.");
+  const selected = feedback ? [catalog.index.get(feedback.sessionId)] : demo ? catalog.sessions : sessionsInWindow(catalog.sessions, { days, sources });
   const selectedIds = new Set(selected.map((session) => session.id));
   const reviews = new Reviews(catalog);
   let completedDonation = false;
@@ -81,6 +86,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
     const expectedOrigins = new Set([`http://127.0.0.1:${server.address()?.port || port}`, `http://localhost:${server.address()?.port || port}`]);
     const mutating = request.method !== "GET" && request.method !== "HEAD";
     try {
+      if (!expectedOrigins.has(`http://${host}`)) return json(response, 403, { error: "Local access only." });
       if (mutating && !expectedOrigins.has(request.headers.origin || "")) return json(response, 403, { error: "This local action must come from the review app." });
       if (request.method === "GET" && url.pathname === "/api/health") return json(response, 200, { app: "share-with-susan-calvin", version: APP_VERSION, local: true, demo });
       if (request.method === "GET" && url.pathname === "/api/catalog") return json(response, 200, {
@@ -88,16 +94,18 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
         discoveredSessions: catalog.sessions.length,
         days,
         demo,
+        integration,
+        ...(feedbackContext ? { feedback: feedbackContext, feedbackConsent: FEEDBACK_CONSENT } : {}),
         privacy: "Nothing has left this machine.",
       });
       if (request.method === "POST" && url.pathname === "/api/shutdown") {
-        if (!completedDonation || uploading) return json(response, 409, { error: "Finish the donation before closing the app." });
+        if ((!completedDonation && !integration) || uploading) return json(response, 409, { error: "Finish the donation before closing the app." });
         response.once("finish", () => { server.close(); server.closeIdleConnections(); });
         return json(response, 200, { stopped: true });
       }
       if (request.method === "POST" && url.pathname === "/api/reviews") {
         const body = await readBody(request, MAX_REVIEW_SESSIONS * 20 + 200_000);
-        if (!Array.isArray(body.sessionIds) || body.sessionIds.some((id) => !selectedIds.has(id))) return json(response, 400, { error: "Choose available sessions." });
+        if (!Array.isArray(body.sessionIds) || (feedback && body.sessionIds.length !== 1) || body.sessionIds.some((id) => !selectedIds.has(id))) return json(response, 400, { error: "Choose available sessions." });
         if (!["standard", "custom", "unredacted"].includes(body.mode)) return json(response, 400, { error: "Choose a donation mode." });
         const options = { mode: body.mode, unredacted: body.mode === "unredacted", disabledKinds: safeArray(body.disabledKinds, /^[a-z0-9-]{1,64}$/, 20), disabledMatches: safeArray(body.disabledMatches, /^[a-f0-9]{24}$/, 5_000) };
         return json(response, 202, await reviews.create(body.sessionIds, options));
@@ -112,9 +120,26 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
         if (customMatch[2] && request.method !== "DELETE") return json(response, 405, { error: "Use Remove to delete a custom redaction." });
         const job = reviews.get(customMatch[1]);
         const body = request.method === "POST" ? await readBody(request, 2_000) : null;
-        if (job.status !== "ready" || job.redacting || job.options.mode !== "custom") return json(response, 409, { error: "Wait for a ready preview in Customize redactions mode." });
+        if (job.status !== "ready" || job.redacting || job.feedbackPreparing || job.options.mode !== "custom") return json(response, 409, { error: "Wait for a ready preview in Customize redactions mode." });
+        delete job.feedbackSnapshot;
         job.customTask = (body ? reviews.redact(job, body) : customMatch[2] ? reviews.removeCustom(job, customMatch[2]) : reviews.resetCustom(job)).catch(error => { job.customError = error.message; });
         return json(response, 202, reviews.summary(job));
+      }
+      const feedbackMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})\/feedback$/);
+      if (request.method === "POST" && feedbackMatch) {
+        if (!feedbackContext) return json(response, 400, { error: "This review has no classifier correction." });
+        const job = reviews.get(feedbackMatch[1]);
+        if (job.status !== "ready" || job.redacting || job.feedbackPreparing) return json(response, 409, { error: "Wait for the current review." });
+        const body = await readBody(request, 5_000);
+        if (job.status !== "ready" || job.redacting || job.feedbackPreparing || job.cancelled) return json(response, 409, { error: "Review changed. Review the correction again." });
+        delete job.feedbackSnapshot;
+        job.feedbackPreparing = true;
+        try {
+          const snapshot = await prepareFeedback(feedbackContext, body, job.options, reviews.customRedactions);
+          if (job.cancelled || job.redacting || job.status !== "ready") return json(response, 409, { error: "Review changed. Review the correction again." });
+          job.feedbackSnapshot = snapshot;
+          return json(response, 200, snapshot);
+        } finally { job.feedbackPreparing = false; }
       }
       const reviewMatch = url.pathname.match(/^\/api\/reviews\/([0-9a-f-]{36})(?:\/sessions\/(\d+)|\/(donate))?$/);
       if (reviewMatch) {
@@ -130,7 +155,9 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
           const body = await readBody(request);
           if (!["ready", "paused"].includes(job.status) || uploading || job.redacting) return json(response, 409, { error: "The review is not ready for upload." });
           if (body.researchDonation !== true || (job.options.unredacted && body.unredactedData !== true)) return json(response, 400, { error: "Consent is required." });
-          if (!job.consent) job.consent = { researchDonation: true, ...(job.options.unredacted ? { unredactedData: true } : {}), consentedAt: new Date().toISOString() };
+          if (feedbackContext && (!job.feedbackSnapshot || job.feedbackPreparing || body.classifierFeedback !== true || body.feedbackRevision !== job.feedbackSnapshot.revision)) return json(response, 400, { error: "Review the correction and consent to sharing it first." });
+          if (!feedbackContext && body.classifierFeedback) return json(response, 400, { error: "No classifier correction in this review." });
+          if (!job.consent) job.consent = { researchDonation: true, ...(feedbackContext ? { classifierFeedback: true } : {}), ...(job.options.unredacted ? { unredactedData: true } : {}), consentedAt: new Date().toISOString() };
           if (!job.token) job.token = createDeletionToken();
           // Save the group deletion credential BEFORE the first request, including uncertain responses.
           if (!demo) saveDonationReceipt({ donationId: job.id, deletionToken: job.token, donationRunId: job.id, group: true, sourceTypes: [...new Set(job.sessions.map((s) => s.source))], sessionCount: job.sessions.length });
@@ -181,7 +208,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
   });
 
   server.once("close", () => {
-    for (const job of reviews.jobs.values()) job.uploadController?.abort();
+    for (const job of reviews.jobs.values()) { job.cancelled = true; job.uploadController?.abort(); }
     void reviews.close();
   });
   await new Promise((resolve, reject) => {

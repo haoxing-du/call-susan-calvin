@@ -74,3 +74,11 @@ The `.bin` storage representation is the ASCII line `susan-calvin-encrypted-stre
 ## Local review integrity
 
 The local app uploads only server-held review snapshots. Standard mode always enables every standard rule; Custom mode begins with that same baseline. The donation-wide custom redaction endpoint accepts a pattern and type, computes the matches locally, and substitutes a fixed `[REDACTED]` marker. It never accepts replacement prose or a rewritten message array. The old free-text local submission endpoint returns HTTP 410. Available source message timestamps are preserved in every mode without a separate opt-in. The encrypted receiver protocol is unchanged.
+
+## Classifier corrections
+
+An optional `classifierFeedback` object contains `originalLabel`, `correctedLabel`, `candidateId`, reviewed `judgedText`, `occurrences`, `confidence`, `judge: { model, promptVersion }`, and an optional reviewed `note`. Original labels are yelling/thanking; corrections also allow neither/unsure. The plaintext purpose is `classifier_feedback`. This requires exactly one session and, when grouped, one batch. It requires `consent.classifierFeedback: true` and consent version 2, with explicit research and Behavior Wrapped improvement consent. Ordinary donations retain consent version 1. The receiver accepts both consent versions; correction text and provenance remain inside encryption and are excluded from notification metadata.
+
+The local feedback endpoint prepares a server-held correction snapshot against the current review and returns an opaque revision. The final donation must include that revision and purpose-specific consent. Transcript changes, rule changes, or preparing another correction invalidate the prior revision. Retries retain the frozen accepted correction and consent.
+
+Legacy Behavior Wrapped deletion retains `/v1/research-donations/:id`, protocol-2 Behavior Wrapped headers, and its original credential hashes. The Behavior Wrapped Worker forwards this endpoint to this receiver. Legacy D1 and R2 resources remain separate; their objects are never relabeled or reencrypted. New uploads use only the Susan protocol.

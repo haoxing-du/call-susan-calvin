@@ -16,12 +16,21 @@
       "database_name": "susan-calvin-donation-metadata",
       "database_id": "bd4aeead-3251-408a-8181-271474287846",
       "migrations_dir": "migrations"
+    },
+    {
+      "binding": "LEGACY_RESEARCH_DB",
+      "database_name": "behavior-wrapped-research-metadata",
+      "database_id": "7b299e86-fa0f-4ff9-909e-70783e7d872a"
     }
   ],
   "r2_buckets": [
     {
       "binding": "DONATIONS",
       "bucket_name": "susan-calvin-donations"
+    },
+    {
+      "binding": "LEGACY_RESEARCH_DONATIONS",
+      "bucket_name": "behavior-wrapped-research-donations"
     }
   ],
   "ratelimits": [

@@ -44,6 +44,16 @@ Deletion receipts are stored with restrictive permissions under `~/.call-susan-c
 
 Codex can store injected setup and plugin information with the user role. In the review, recognized leading context blocks appear in a collapsed **Codex context · included in donation** section, separate from the actual user prompt. Expand the section to inspect or redact it. The original role, message order, and context remain in the reviewed donation.
 
+## From Behavior Wrapped
+
+Behavior Wrapped opens this app for ordinary sharing without transferring its report or selection. Choose sessions normally. No report consent carries over.
+
+A classification correction opens only its original session, including sessions outside the usual date window. Choose the corrected label and an optional explanation, then click **Review correction**. The reviewed excerpt and explanation use your current redaction rules. Inspect every included correction field, then consent to sharing the session and correction for research and to evaluate and improve Behavior Wrapped. Changing the review or correction clears consent. Corrections use the same encrypted upload and deletion receipts as other donations.
+
+`list` also finds legacy Behavior Wrapped receipts in `~/.agent-behavior-wrapped/donation-receipts`. References include `susan:` or `wrapped:`; pass the complete reference to `delete`. Legacy counts may be unavailable. Existing ciphertext stays in its original storage, and receipts remain on disk until deletion is confirmed. No receipt or deletion token is copied into a donation.
+
+Apps can import `launchReview` from `share-with-susan-calvin/integration`. It returns `{ url }` after an independent localhost process starts on an available port. Ordinary launches take no session selection. Optional classifier context travels through local IPC, never URL parameters. An integrated launch offers **Stop local review** before donation and survives the calling app's shutdown. Uploads must finish or pause before stopping.
+
 ## Local server lifetime
 
 The command runs a foreground server on `127.0.0.1:4318` by default. Stop it with Ctrl+C, or use **Close window and stop local server** on the donation success screen. If the browser prevents the page from closing its own tab, the server still stops and the page says it is safe to close. Closing a tab by itself does not stop the server. There is no idle timeout or automatic restart.

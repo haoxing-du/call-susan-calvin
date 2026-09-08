@@ -16,6 +16,8 @@
         <p class="research-note"><a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">Data policy</a></p>
       </section>
 
+      <button id="stop-review" class="secondary hidden">Stop local review</button>
+      <p id="stop-status" class="hint" role="status"></p>
       <section id="loading" class="card centered"><p id="loading-status" role="status">Loading local sessions…</p><button id="retry-catalog" class="secondary hidden">Retry loading sessions</button></section>
       <section id="empty" class="card centered hidden"><h2>No sessions found</h2><p>Try restarting the command with a wider date range, such as <code>--days=90</code>.</p></section>
       <div id="workspace" class="workspace hidden">
@@ -72,8 +74,19 @@
           </div>
           </section>
             <div class="step consent-heading"><span>3</span><div><h2>Confirm donation</h2><p>Data is encrypted on this device before upload.</p></div></div>
+            <section id="feedback" class="custom hidden" aria-labelledby="feedback-heading">
+              <h3 id="feedback-heading">Correct a Wrapped classification</h3>
+              <p>This donation includes only the original session. Review its redactions above, then review your correction below.</p>
+              <p id="feedback-original"></p>
+              <label class="field">Correct classification<select id="feedback-label"><option value="">Choose a classification</option><option value="yelling">Yelling</option><option value="thanking">Thanking</option><option value="neither">Neither</option><option value="unsure">Unsure</option></select></label>
+              <label class="field">Optional explanation<textarea id="feedback-note" maxlength="1000" rows="3"></textarea></label>
+              <button id="prepare-feedback" class="secondary">Review correction</button>
+              <p class="hint">The excerpt and explanation follow your redaction settings. Counts above cover the session only. All correction fields below are included exactly as shown.</p>
+              <dl id="feedback-preview" class="hidden"></dl>
+              <p id="feedback-status" class="hint" role="status"></p>
+            </section>
             <label id="unredacted-consent" class="consent danger hidden"><input id="unredacted-ack" type="checkbox"> I understand that automatic redaction is disabled and private credentials, code, URLs, paths, and personal details may be transmitted.</label>
-            <label class="consent"><input id="consent" type="checkbox"><span>I consent to donate these sessions to the <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a> for research under the <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">data policy</a>.</span></label>
+            <label class="consent"><input id="consent" type="checkbox"><span id="consent-copy">I consent to donate these sessions to the <a href="https://susancalvin.org" target="_blank" rel="noreferrer">Susan Calvin Project</a> for research under the <a href="https://susancalvin.org/data-policy" target="_blank" rel="noreferrer">data policy</a>.</span></label>
             <button id="donate" class="donate" disabled>Donate reviewed data</button>
           <p id="progress" class="hint" role="status"></p>
           <p id="error" class="error" aria-live="assertive"></p>

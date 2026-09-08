@@ -164,3 +164,11 @@ footer { padding: 20px 0; border-top: 1px solid var(--line); color: var(--muted)
 
 .custom-rule-link { display: block; max-width: 100%; padding: 4px 0; border: 0; background: transparent; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
 .custom-rule-link:disabled { background: transparent; text-decoration: none; cursor: default; }
+
+#feedback-preview { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85rem; }
+#feedback-note { width: 100%; font: inherit; }
+
+#feedback-preview dt { font-weight: 600; margin-top: 0.75rem; }
+#feedback-preview dd { margin: 0.25rem 0 0; white-space: pre-wrap; }
+
+@media (max-width: 600px) { #feedback-note { font-size: 16px; } }

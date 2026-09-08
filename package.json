@@ -1,6 +1,6 @@
 {
   "name": "share-with-susan-calvin",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Review and securely donate your local AI agent sessions to the Susan Calvin Project.",
   "license": "Apache-2.0",
   "type": "module",
@@ -65,5 +65,8 @@
       "ws": "8.21.0",
       "sharp": "0.35.3"
     }
+  },
+  "exports": {
+    "./integration": "./server/integration.mjs"
   }
 }

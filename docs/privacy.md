@@ -42,3 +42,9 @@ An internal service sends a Zulip alert containing aggregate session/message/det
 
 The public data-use and storage policy is maintained at [susancalvin.org/data-policy](https://susancalvin.org/data-policy).
 
+
+## Wrapped handoff and corrections
+
+Ordinary Wrapped sharing opens normal local discovery without passing its report or session selection. A correction passes only a local source-session reference and its classification context over process IPC. This context stays local until reviewed and explicitly consented to in Susan. Only that original session can be included. The excerpt and optional explanation are redacted according to the current review settings and shown separately before consent; they are excluded from the transcript-only redaction counts. The full correction, including judge provenance, is encrypted with the session. No source session identifier or report identifier enters the donation.
+
+Legacy receipt discovery is local and read-only. Deleting a legacy donation sends its deletion credential only to the fixed original Behavior Wrapped endpoint, which forwards to Susan's receiver. It preserves the original storage and consent. A successful deletion, or the legacy service's explicit already-absent result, removes the local receipt; other errors retain it.

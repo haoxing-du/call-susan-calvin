@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { startLocalApp } from "./launcher.mjs";
-import { deleteDonation } from "./donation-client.mjs";
-import { deleteDonationReceipt, listDonationReceipts, loadDonationReceipt } from "./store.mjs";
+import { deleteManagedDonation, listManagedDonations } from "./managed-donations.mjs";
 import { openExternalUrl } from "./platform.mjs";
 
 const args = process.argv.slice(2);
@@ -24,17 +23,14 @@ function help() {
 async function run() {
   if (command === "help" || args.includes("--help") || args.includes("-h")) return help();
   if (command === "list") {
-    const receipts = listDonationReceipts();
+    const receipts = listManagedDonations();
     if (!receipts.length) return console.log("No locally managed donations.");
-    for (const receipt of receipts) console.log(`${receipt.donationId}  ${receipt.savedAt.slice(0, 10)}  ${receipt.sessionCount} sessions  ${receipt.sourceTypes.join(" + ")}`);
+    for (const receipt of receipts) console.log(`${receipt.origin}:${receipt.donationId}  ${receipt.savedAt.slice(0, 10)}  ${receipt.sessionCount ? `${receipt.sessionCount} sessions` : "legacy donation"}  ${(receipt.sourceTypes || []).join(" + ")}`);
     return;
   }
   if (command === "delete") {
     const id = args[1];
-    const receipt = loadDonationReceipt(id);
-    if (!receipt) throw new Error("That local donation receipt was not found. Run share-with-susan-calvin list to find donations managed by this device.");
-    await deleteDonation(receipt.donationId, receipt.deletionToken, { group: receipt.group === true });
-    deleteDonationReceipt(receipt.donationId);
+    await deleteManagedDonation(id);
     console.log(`Deleted donation ${receipt.donationId}.`);
     return;
   }

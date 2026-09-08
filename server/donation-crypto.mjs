@@ -35,7 +35,7 @@ export function encryptDonation(value, publicKey = DONATION_PUBLIC_KEY) {
       redactionMode: donation.redactionMode,
       createdAt: donation.createdAt,
       consentedAt: donation.consent.consentedAt,
-      consentVersion: DONATION_CONSENT_VERSION,
+      consentVersion: donation.consent.consentVersion,
       unredactedData: donation.redactionMode === "unredacted",
       automatedDetections: donation.redactionSummary.automatedDetections,
       sessions: donation.redactionSummary.sessions,

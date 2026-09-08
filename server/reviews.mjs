@@ -237,7 +237,7 @@ export class Reviews {
     // Stable IDs make a retried upload idempotent, even after a lost response.
     const hex = crypto.createHash("sha256").update(`${job.id}:${batchIndex}`).digest("hex");
     const runId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-    return { donationRunId: runId, collector: { version }, group: { id: job.id, index: batchIndex, count: job.batches.length }, redactionMode: job.options.mode, createdAt: consent.consentedAt, consent, redactionSummary: { automatedDetections: detections }, sessions };
+    return { ...(job.feedbackSnapshot ? { classifierFeedback: job.feedbackSnapshot.value } : {}), donationRunId: runId, collector: { version }, group: { id: job.id, index: batchIndex, count: job.batches.length }, redactionMode: job.options.mode, createdAt: consent.consentedAt, consent, redactionSummary: { automatedDetections: detections }, sessions };
   }
   async close() {
     for (const job of this.jobs.values()) {

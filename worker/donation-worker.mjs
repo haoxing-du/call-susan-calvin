@@ -1,3 +1,4 @@
+import { deleteLegacyDonation } from "./legacy-donations.mjs";
 import { enqueueNotification, deliverNotifications, reconcileNotifications } from "./notifications.mjs";
 import { MAX_ENCRYPTED_BYTES, MAX_COMPRESSED_BYTES, sanitizeEncryptedEnvelope, sanitizeEncryptedHeader, encryptedStoragePrefix } from "../server/encrypted-donation-schema.mjs";
 
@@ -180,6 +181,11 @@ async function removeGroup(request, env, id) {
 export async function handleRequest(request, env, context) {
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") return json({ service: "susan-calvin-donations", healthy: true });
+  const legacy = url.pathname.match(/^\/v1\/research-donations\/([0-9a-f-]{36})$/);
+  if (legacy && request.method === "DELETE") {
+    if (request.headers.get("x-behavior-wrapped-protocol") !== "2") return json({ error: "Unsupported client protocol." }, 400);
+    try { return await deleteLegacyDonation(request, env, legacy[1]); } catch { return json({ error: "Legacy deletion interrupted. Retrying is safe." }, 503); }
+  }
   if (url.pathname === "/v1/donations") {
     if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
     if (!validProtocol(request)) return json({ error: "Encrypted donation protocol 1 or 2 is required." }, 426);

@@ -49,7 +49,7 @@ function renderSessions() {
     preview.textContent = session.firstUserMessage || "No user message available"; preview.title = preview.textContent;
     const small = document.createElement("small"); small.textContent = `${session.title ? `${session.agentName} · ${new Date(session.startedAt).toLocaleDateString()} · ` : ""}${session.messageCount} messages · ${formatBytes(session.sizeBytes)}`;
     copy.append(strong, preview, small);
-    copy.addEventListener("click", () => { elements["bundle-details"].open = false; void showSession(session.id); });
+    copy.addEventListener("click", () => { void showSession(session.id); });
     row.append(input, copy); elements.sessions.append(row);
   }
   if (!state.filtered.length) {
@@ -314,7 +314,7 @@ async function openOccurrence(kind, matchId, position = 0) {
     const route = kind === "custom" ? `custom/${matchId}` : `redactions/${kind}/${matchId}`;
     const result = await api(`/api/reviews/${reviewId}/${route}?position=${position}`, "GET", null, controller.signal);
     if (controller.signal.aborted || state.review?.id !== reviewId) return;
-    elements["bundle-details"].open = false; elements["custom-redaction"].open = false;
+    elements["custom-redaction"].open = false;
     // Reveal the location's catalog page without changing donation inclusion.
     if (!state.filtered.some(s => s.id === result.sessionId)) { elements["session-search"].value = ""; state.filtered = state.catalog; }
     state.sessionPage = Math.floor(state.filtered.findIndex(s => s.id === result.sessionId) / 30);
@@ -512,7 +512,6 @@ async function changeCustomRedactions(reset = false, removeId = "") {
       state.occurrence = null;
       renderReview();
     }
-    elements["bundle-details"].open = true;
     renderOverview(); renderMode();
     elements["custom-status"].textContent = removeId ? "Custom redaction removed." : reset ? "Custom redactions reset across all included sessions." : result.customCount ? `Applied ${result.customCount.toLocaleString()} redaction${result.customCount === 1 ? "" : "s"} across included sessions.` : "No matches found. Pattern saved for sessions you include later.";
     if (!reset && !removeId) elements["custom-pattern"].value = "";
@@ -607,7 +606,6 @@ elements["back-overview"].addEventListener("click", () => {
   state.activeId = ""; state.preview = null; state.previewRequest++; state.occurrence = null; state.occurrenceController?.abort();
   elements["session-viewer"].setAttribute("aria-busy", "false");
   setHidden(elements["session-viewer"], true);
-  elements["bundle-details"].open = true;
   setHidden(elements["review-content"], true); setHidden(elements["review-placeholder"], false); setHidden(elements["back-overview"], true);
   elements["review-placeholder"].textContent = "";
   highlightSession(); renderMode(); lockControls(state.busy);

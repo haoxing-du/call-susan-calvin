@@ -65,3 +65,21 @@ export function deleteDonationReceipt(id) {
   return true;
 }
 
+
+// Publish a fully written file atomically so concurrent apps share one identity.
+export function getContributorId(root = storeRoot) {
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  const target = path.join(root, "contributor-id");
+  const read = () => {
+    const id = fs.readFileSync(target, "utf8").trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)) throw new Error("The saved contributor ID is invalid. Restore it or remove the contributor-id file to create a new identity.");
+    return id;
+  };
+  try { return read(); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  const temporary = `${target}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(temporary, `${crypto.randomUUID()}\n`, { mode: 0o600, flag: "wx" });
+  try {
+    try { fs.linkSync(temporary, target); } catch (error) { if (error.code !== "EEXIST") throw error; }
+    return read();
+  } finally { fs.unlinkSync(temporary); }
+}

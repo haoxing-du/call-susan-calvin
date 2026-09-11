@@ -8,7 +8,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { discoverAllSessions, sessionsInWindow } from "./discovery.mjs";
 import { submitDonation, deleteDonation } from "./donation-client.mjs";
-import { createDeletionToken, deleteDonationReceipt, loadDonationReceipt, saveDonationReceipt } from "./store.mjs";
+import { getContributorId, createDeletionToken, deleteDonationReceipt, loadDonationReceipt, saveDonationReceipt } from "./store.mjs";
 
 const require = createRequire(import.meta.url);
 const { version: APP_VERSION } = require("../package.json");
@@ -159,6 +159,7 @@ export async function startLocalApp({ port = 4318, days = 30, sources = [], demo
           if (!feedbackContext && body.classifierFeedback) return json(response, 400, { error: "No classifier correction in this review." });
           if (!job.consent) job.consent = { researchDonation: true, ...(feedbackContext ? { classifierFeedback: true } : {}), ...(job.options.unredacted ? { unredactedData: true } : {}), consentedAt: new Date().toISOString() };
           if (!job.token) job.token = createDeletionToken();
+          if (!demo && !job.contributorId) job.contributorId = getContributorId();
           // Save the group deletion credential BEFORE the first request, including uncertain responses.
           if (!demo) saveDonationReceipt({ donationId: job.id, deletionToken: job.token, donationRunId: job.id, group: true, sourceTypes: [...new Set(job.sessions.map((s) => s.source))], sessionCount: job.sessions.length });
           job.status = "uploading"; job.error = ""; uploading = true; job.uploadController = new AbortController();

@@ -22,6 +22,7 @@ export function normalizeDonation(value) {
   if (value.consent?.researchDonation !== true || !modes.has(value.redactionMode)) return null;
   if (!/^[0-9a-f-]{36}$/.test(value.donationRunId || "")) return null;
   if (value.redactionMode === "unredacted" && value.consent?.unredactedData !== true) return null;
+  if (value.contributorId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.contributorId)) return null;
   if (!Array.isArray(value.sessions) || !value.sessions.length || value.sessions.length > MAX_SESSIONS) return null;
   if (value.group && (!/^[0-9a-f-]{36}$/.test(value.group.id || "") || !Number.isInteger(value.group.index) || !Number.isInteger(value.group.count) || value.group.count < 1 || value.group.count > 100_000 || value.group.index < 0 || value.group.index >= value.group.count)) return null;
   const feedback = value.classifierFeedback === undefined ? null : sanitizeClassifierFeedback(value.classifierFeedback);
@@ -51,6 +52,7 @@ export function normalizeDonation(value) {
     format: DONATION_FORMAT,
     ...(feedback ? { purpose: "classifier_feedback", classifierFeedback: feedback } : {}),
     donationRunId: value.donationRunId,
+    ...(value.contributorId ? { contributorId: value.contributorId } : {}),
     ...(value.group ? { group: { id: value.group.id, index: value.group.index, count: value.group.count } } : {}),
     collector: { name: "share-with-susan-calvin", version: cleanText(value.collector?.version).slice(0, 32) || "unknown" },
     sourceTypes,

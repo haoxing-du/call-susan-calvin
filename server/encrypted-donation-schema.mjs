@@ -31,6 +31,8 @@ export function sanitizeEncryptedEnvelope(value) {
   if (typeof value.ciphertext !== "string" || !value.ciphertext || value.ciphertext.length > Math.ceil(MAX_COMPRESSED_BYTES / 3) * 4 || !base64url.test(value.ciphertext)) return null;
   const metadataKeys = ["automatedDetections", "collectorVersion", "consentedAt", "consentVersion", "contentEncoding", "createdAt", "donationRunId", "messages", "redactionMode", "sessions", "sourceTypes", "unredactedData"];
   if (value.metadata?.groupId !== undefined) metadataKeys.push("groupId", "batchIndex", "batchCount");
+  if (value.metadata?.contributorId !== undefined) metadataKeys.push("contributorId");
+  if (value.metadata?.tokens !== undefined) metadataKeys.push("tokens", "tokenEncoding");
   if (!exactKeys(value.metadata, metadataKeys)) return null;
   const metadata = value.metadata;
   if (!/^[0-9a-f-]{36}$/.test(metadata.donationRunId || "") || metadata.contentEncoding !== CONTENT_ENCODING) return null;
@@ -40,6 +42,8 @@ export function sanitizeEncryptedEnvelope(value) {
   if (!/^\d{4}-\d{2}-\d{2}T/.test(metadata.createdAt || "") || !/^\d{4}-\d{2}-\d{2}T/.test(metadata.consentedAt || "")) return null;
   if (![DONATION_CONSENT_VERSION, FEEDBACK_CONSENT_VERSION].includes(metadata.consentVersion) || typeof metadata.unredactedData !== "boolean" || metadata.unredactedData !== (metadata.redactionMode === "unredacted")) return null;
   if (!boundedInteger(metadata.automatedDetections, 1_000_000) || !boundedInteger(metadata.sessions, 250, 1) || !boundedInteger(metadata.messages, 50_000, 1)) return null;
+  if (metadata.contributorId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(metadata.contributorId)) return null;
+  if (metadata.tokens !== undefined && (!boundedInteger(metadata.tokens, 20_000_000) || metadata.tokenEncoding !== "cl100k_base")) return null;
   if (metadata.groupId !== undefined && (!/^[0-9a-f-]{36}$/.test(metadata.groupId) || !boundedInteger(metadata.batchCount, 100_000, 1) || !boundedInteger(metadata.batchIndex, metadata.batchCount - 1))) return null;
   return value;
 }

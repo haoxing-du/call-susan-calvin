@@ -1,3 +1,4 @@
+import { countTranscriptTokens, TOKEN_ENCODING } from "./transcript-tokens.mjs";
 import crypto from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { donationByteLength, DONATION_CONSENT_VERSION, MAX_DONATION_BYTES, sanitizeDonation } from "./donation-schema.mjs";
@@ -29,6 +30,9 @@ export function encryptDonation(value, publicKey = DONATION_PUBLIC_KEY) {
     encryption: { algorithm: ENCRYPTION_ALGORITHM, keyId: ENCRYPTION_KEY_ID },
     metadata: {
       donationRunId: donation.donationRunId,
+      ...(donation.contributorId ? { contributorId: donation.contributorId } : {}),
+      tokens: countTranscriptTokens(donation),
+      tokenEncoding: TOKEN_ENCODING,
       ...(donation.group ? { groupId: donation.group.id, batchIndex: donation.group.index, batchCount: donation.group.count } : {}),
       collectorVersion: donation.collector.version,
       sourceTypes: donation.sourceTypes,

@@ -28,7 +28,7 @@ Recognized leading Codex context blocks are folded into labeled sections in the 
 
 After consent, the reviewed payload is validated against a strict size-bounded schema and compressed with gzip. A new random 256-bit content key and 96-bit IV are generated for each donation. Transcript content is protected with authenticated AES-256-GCM encryption, and the content key is wrapped using RSA-OAEP with SHA-256. Authenticated metadata prevents counts or consent fields from being changed without detection.
 
-The receiving Worker accepts only the versioned encrypted envelope. Ciphertext is stored in a private R2 bucket. A D1 database holds the opaque donation reference, hashed deletion token, object location, encryption version, source types, size and count fields, and consent lifecycle metadata. It does not hold transcript text.
+The receiving Worker accepts only the versioned encrypted envelope. Ciphertext is stored in a private R2 bucket. A D1 database holds the opaque donation reference, hashed deletion token, object location, encryption version, source types, size and count fields, and consent lifecycle metadata. It does not hold transcript text. New donations also include a random contributor ID saved on the donor’s device and a count of shared message-text tokens. The ID links repeat donations from that installation without collecting a name or email. It is separate from deletion credentials and is never published. Public statistics show only aggregate contributors, sessions, and tokens; older donations each count as a separate contributor. Tokens use the cl100k_base encoding on each shared message, excluding metadata and chat framing.
 
 ## Local state and deletion
 
@@ -40,7 +40,7 @@ The session index persists under `~/.call-susan-calvin/session-index-v1.json` an
 
 Before a grouped upload begins, a deletion receipt is written under `~/.call-susan-calvin/donation-receipts`, with owner-only directory and file permissions. It covers every batch, including partial uploads and uncertain responses. Each batch is encrypted separately; sessions and their message order remain intact. Only the local receipt stores the deletion token; remote storage holds a one-way hash.
 
-`share-with-susan-calvin delete <donation-id>` removes every encrypted batch and its transcript metadata before removing the local receipt. A minimal group tombstone (opaque ID, hashed deletion credential, batch count, redaction mode, deleted state) remains to reject delayed uploads. Losing the receipt may make self-service deletion impossible.
+`share-with-susan-calvin delete <donation-id>` removes every encrypted batch and its transcript metadata before removing the local receipt. The contributor ID is cleared from the group when deletion begins. A minimal group tombstone (opaque ID, hashed deletion credential, batch count, redaction mode, deleted state) remains to reject delayed uploads. Losing the receipt may make self-service deletion impossible.
 
 An internal service sends a Zulip alert containing aggregate session/message/detection counts, redaction mode, and collector name. It receives no transcript text, saved titles, local paths, or deletion credentials. Notifications are queued durably after the complete donation arrives; failed deliveries retry. Delivery is at least once: a rare lost acknowledgement from Zulip can cause a repeated alert.
 
